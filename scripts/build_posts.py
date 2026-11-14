@@ -525,14 +525,16 @@ def write_caption(out, x, ig):
 def pregame_captions(out, lead, picks, r, tag):
     brief = [f"{p['player_name']} {call(p).lower()} {TIGHT[p['market_code']]}"
              for p in picks]
-    x = "\n".join([f"{lead} Elite picks:", "", *brief, "",
+    x = "\n".join([f"{lead} Elite pick{'s' if len(picks) > 1 else ''}:", "",
+                   *brief, "",
                    record_line(r, brief=True), "", "priorline.io. 21+"])
     lines = [f"{p['player_name']}: {call(p).lower()} {UNIT[p['market_code']]} "
              f"({price(p['price'])}). {said(p)}." if p["form"] else
              f"{p['player_name']}: {call(p).lower()} {UNIT[p['market_code']]} "
              f"({price(p['price'])})." for p in picks]
     ig = "\n".join([
-        f"{lead} The picks my model ranks highest.", "",
+        f"{lead} " + ("The picks my model ranks highest." if len(picks) > 1
+                      else "One of the picks my model ranks highest."), "",
         "Bars are his last ten games. Solid ones landed on our side of the "
         "line.", "", *lines, "", record_line(r), "",
         "Graded in public on Tuesday, win or lose. Full board and the whole "

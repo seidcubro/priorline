@@ -150,7 +150,7 @@ def as_pick(e, games):
         "market_code": e["market_code"], "side": e["recommended_side"],
         "line": float(e["line"]), "price": int(e["price_american"]),
         "prior": float(e["projection_median"]), "book": e.get("bookmaker_title"),
-        "tier": e["edge_tier"], "star": e.get("star_score") or 0,
+        "tier": e["edge_tier"], "star": fame(e),
         "event_id": e["event_id"],
         "game": f"{short(e['away_team'])} at {short(e['home_team'])}",
         "kickoff": t.isoformat(), "form": form,
@@ -160,30 +160,94 @@ def as_pick(e, games):
     }
 
 
-def elite(api, keep):
-    """The board's elite picks that pass `keep`, best-known player first."""
-    rows = [e for e in get(api, "edges", limit=500)["edges"]
-            if e["edge_tier"] == "elite" and keep(e)]
+TIER_RANK = ["elite", "strong", "medium", "small"]
+LEAD = []
+
+
+def fame(e):
+    """How well known he is, for choosing whose name goes on the cover.
+
+    star_score is last season's fantasy points, and a quarterback scores
+    about twice what a receiver of the same standing does. Left alone it
+    put Bryce Young on a cover ahead of Justin Jefferson.
+    """
+    star = e.get("star_score") or 0
+    return star * 0.55 if e["market_code"].startswith("pass_") else star
+
+
+def board(api, keep, tiers=("elite",), players=None):
+    """The board's picks that pass `keep`: best tier first, then best-known.
+
+    One pick a player. `players` names them outright, in that order, for a
+    card that is chosen by hand, and then any tier is taken.
+    """
+    rows = [e for e in get(api, "edges", limit=500)["edges"] if keep(e)]
+    if players:
+        out = []
+        for want in players:
+            hit = [e for e in rows if want.lower() in e["player_name"].lower()]
+            if not hit:
+                raise SystemExit(f"{want} has no pick on the board for that")
+            hit.sort(key=lambda e: TIER_RANK.index(e["edge_tier"]))
+            out.append(hit[0])
+        return out
+    rows = [e for e in rows if e["edge_tier"] in tiers]
+    rows.sort(key=lambda e: (TIER_RANK.index(e["edge_tier"]), -fame(e)))
     seen, out = set(), []
     for e in rows:
         if e["player_name"] in seen:
             continue
         seen.add(e["player_name"])
         out.append(e)
-    out.sort(key=lambda e: -(e.get("star_score") or 0))
     return out
 
 
+def arrange(picks):
+    """The order the slides run in: a name to open on and a name to end on.
+
+    The cover is the best-known player in the best tier on the card. The
+    next best-known goes last, and the cover says so, which is the reason to
+    keep swiping. Everything between stays in rank order.
+    """
+    named = [p for p in picks
+             if LEAD and LEAD[0] in p["player_name"].lower()]
+    if len(picks) < 3:
+        return named + [p for p in picks if p not in named]
+    top = picks[0]["tier"]
+    lead = named[0] if named else max(
+        (p for p in picks if p["tier"] == top), key=lambda p: p["star"])
+    rest = [p for p in picks if p is not lead]
+    last = max(rest, key=lambda p: p["star"])
+    return [lead] + [p for p in rest if p is not last] + [last]
+
+
+SKIP = []
+
+
 def hydrate(api, rows, limit):
+    """The first `limit` picks that are fit to post.
+
+    A player named in --skip is left off: that is for the man ruled out an
+    hour ago whom the board has not caught up with. So is anyone with no game
+    in three weeks, because a pick on a player coming back from that long out
+    is a guess about his health, and a post is not the place for it. The next
+    pick down takes the place.
+    """
     picks = []
-    for e in rows[:limit]:
+    for e in rows:
+        if len(picks) == limit:
+            break
+        if any(n in e["player_name"].lower() for n in SKIP):
+            print(f"  left off, as asked: {e['player_name']}")
+            continue
         games = get(api, f"players/{e['player_id']}/games", limit=WINDOW)["games"]
         p = as_pick(e, games)
         if p["last_played"]:
             idle = (kick(e).date() - dt.date.fromisoformat(p["last_played"])).days
             if idle > 21:
-                print(f"  check {p['player_name']}: his last game on file is "
-                      f"{p['last_played']}")
+                print(f"  left off {p['player_name']}: his last game on file "
+                      f"is {p['last_played']}")
+                continue
         if len(p["form"]) < 5:
             print(f"  check {p['player_name']}: only {len(p['form'])} games "
                   f"behind this pick")
@@ -220,7 +284,7 @@ def arrow(c, x, y, length, colour, weight=3.0):
                  ((tip - 20) * s, (y + half) * s)], fill=colour)
 
 
-def strip(c, x, y, w, h, p, on, off, rule, label):
+def strip(c, x, y, w, h, p, on, off, rule, label, ground):
     """His last ten games against the line, oldest on the left.
 
     A bar on our side of the line is solid and one on the other side is an
@@ -242,8 +306,12 @@ def strip(c, x, y, w, h, p, on, off, rule, label):
             c.frame(bx, y + h - bh, bw, bh, off, t=3)
     ly = y + h - h * p["line"] / top
     c.rect(x - 14, ly - 1.5, w + 28, 3, rule)
-    c.text(x + w + 14, ly - 12, f"LINE {num(p['line'])}", bb.CAPS, 17, label,
-           track=0.1, align="r")
+    # On a patch of the ground colour, so a tall last bar does not run
+    # through it.
+    tag = f"LINE {num(p['line'])}"
+    tw = c.width(tag, bb.CAPS, 17, 0.1)
+    c.rect(x + w + 14 - tw - 10, ly - 34, tw + 10, 30, ground)
+    c.text(x + w + 14, ly - 12, tag, bb.CAPS, 17, label, track=0.1, align="r")
     c.rect(x - 14, y + h, w + 28, 1.5, label)
 
 
@@ -265,7 +333,7 @@ def pick_slide(path, p):
     ink, dim, green = bb.rgb(bb.INK), bb.rgb(bb.INK_DIM), bb.rgb(bb.GREEN)
     t = dt.datetime.fromisoformat(p["kickoff"])
     y = pad + 34
-    bb.stamp(c, pad, y, "ELITE", bb.TIER_INK["elite"], 22)
+    bb.stamp(c, pad, y, p["tier"].upper(), bb.TIER_INK[p["tier"]], 22)
     c.text(w - pad, y, f"{p['game'].upper()}  {clock(t)}", bb.CAPS, 20, dim,
            track=0.1, align="r")
     first, last = names(p)
@@ -292,7 +360,7 @@ def pick_slide(path, p):
     room = foot - y - 92
     if p["form"] and room > 110:
         strip(c, pad + 14, y, inner - 28, min(room, 200), p, green,
-              bb.mix(bb.PAPER, bb.INK_DIM, 0.75), ink, dim)
+              bb.mix(bb.PAPER, bb.INK_DIM, 0.75), ink, dim, bb.rgb(bb.PAPER))
         c.text(pad, y + min(room, 200) + 56, said(p), bb.SANS_BOLD, 29, ink)
     bb.footer(c, pad, bb.INK, dim, size=22)
     c.save(path)
@@ -324,7 +392,9 @@ def cover(path, label, hook, more, swipe=True):
                   heavy=4, gap=4, light=1.5)
     if more:
         y += ls * 0.2 + 96
-        c.text(pad, y, more, bb.SANS, 34, cream)
+        for line in more:
+            c.text(pad, y, line, bb.SANS, 34, cream)
+            y += 50
     if swipe:
         y = h - pad - 150
         c.text(pad, y, "SWIPE", bb.CAPS, 24, gold, track=0.16)
@@ -390,24 +460,37 @@ def x_card(path, label, hook, others, r):
     rw = w - pad - x
     top = pad + 20
     if others:
-        c.text(x, top, "ALSO ELITE", bb.CAPS, 20, gold, track=0.14)
+        all_elite = all(p["tier"] == "elite" for p in [hook] + others)
+        c.text(x, top, "ALSO ELITE" if all_elite else "ALSO ON THE CARD",
+               bb.CAPS, 20, gold, track=0.14)
         c.rect(x, top + 22, rw, 2, gold)
         ry = top + 22
-        row = min(104, (h - pad - 80 - ry) / len(others))
+        row = min(104, (h - pad - 96 - ry) / len(others))
+        hair = bb.mix(bb.CLOTH, bb.CREAM, 0.25)
         for p in others:
-            base = ry + row / 2 + 2
-            ns = fit(c, p["player_name"], bb.SERIF, 36, rw * 0.56)
-            c.text(x, base, p["player_name"], bb.SERIF, ns, cream)
-            c.text(x, base + 32, UNIT[p["market_code"]], bb.ITALIC, 22, dim)
-            c.text(x + rw, base, call(p), bb.SERIF, 36, gold, align="r")
-            c.text(x + rw, base + 32, price(p["price"]), bb.CAPS, 17, dim,
-                   track=0.1, align="r")
+            if row >= 84:
+                base = ry + row / 2 + 2
+                ns = fit(c, p["player_name"], bb.SERIF, 36, rw * 0.56)
+                c.text(x, base, p["player_name"], bb.SERIF, ns, cream)
+                c.text(x, base + 32, UNIT[p["market_code"]], bb.ITALIC, 22, dim)
+                c.text(x + rw, base, call(p), bb.SERIF, 36, gold, align="r")
+                c.text(x + rw, base + 32, price(p["price"]), bb.CAPS, 17, dim,
+                       track=0.1, align="r")
+            else:
+                # A long card: one line a pick.
+                base = ry + row / 2 + 10
+                said_ = f"{call(p)} {TIGHT[p['market_code']]}"
+                size = min(29, row * 0.5)
+                ns = fit(c, p["player_name"], bb.SERIF, size,
+                         rw - c.width(said_, bb.SERIF, size) - 24)
+                c.text(x, base, p["player_name"], bb.SERIF, ns, cream)
+                c.text(x + rw, base, said_, bb.SERIF, size, gold, align="r")
             ry += row
-            c.rect(x, ry, rw, 1, bb.mix(bb.CLOTH, bb.CREAM, 0.25))
+            c.rect(x, ry, rw, 1, hair)
     elif hook["form"]:
         c.text(x, top, "HIS LAST TEN", bb.CAPS, 20, gold, track=0.14)
         strip(c, x + 14, top + 70, rw - 28, 330, hook, gold,
-              bb.mix(bb.CLOTH, bb.CREAM, 0.45), cream, dim)
+              bb.mix(bb.CLOTH, bb.CREAM, 0.45), cream, dim, bb.rgb(bb.CLOTH))
         c.text(x, top + 70 + 330 + 62, said(hook), bb.SANS_BOLD, 30, cream)
         c.text(x, top + 70 + 330 + 112,
                f"Our prior {hook['prior']:.1f}. Their line {hook['line']:.1f}. "
@@ -525,9 +608,16 @@ def write_caption(out, x, ig):
 def pregame_captions(out, lead, picks, r, tag):
     brief = [f"{p['player_name']} {call(p).lower()} {TIGHT[p['market_code']]}"
              for p in picks]
-    x = "\n".join([f"{lead} Elite pick{'s' if len(picks) > 1 else ''}:", "",
+    kind = "Elite" if all(p["tier"] == "elite" for p in picks) else "Top"
+    x = "\n".join([f"{lead} {kind} pick{'s' if len(picks) > 1 else ''}:", "",
                    *brief, "",
                    record_line(r, brief=True), "", "priorline.io. 21+"])
+    if len(x) > 280:
+        # A long card does not fit a post. The image carries the picks.
+        x = "\n".join([f"{lead} {COUNT[len(picks)]} {kind.lower()} picks, "
+                       f"led by {picks[0]['player_name']}. All of them are on "
+                       f"the card.", "", record_line(r, brief=True), "",
+                       "priorline.io. 21+"])
     lines = [f"{p['player_name']}: {call(p).lower()} {UNIT[p['market_code']]} "
              f"({price(p['price'])}). {said(p)}." if p["form"] else
              f"{p['player_name']}: {call(p).lower()} {UNIT[p['market_code']]} "
@@ -554,7 +644,7 @@ def slug(s):
 def pregame(api, rows, label, lead, folder, limit, tag, week):
     if not rows:
         raise SystemExit("the board has no elite picks for that, so there is no post")
-    picks = hydrate(api, rows, limit)
+    picks = arrange(hydrate(api, rows, limit))
     wk = week_of(picks, week)
     if wk:
         label = f"WEEK {wk}. {label}"
@@ -566,19 +656,22 @@ def pregame(api, rows, label, lead, folder, limit, tag, week):
     for old in out.glob("*.png"):
         old.unlink()
     hook, rest = picks[0], picks[1:]
-    more = ""
+    more = []
     if rest:
-        more = (f"Plus {COUNT[len(rest)].lower()} more elite pick"
-                f"{'s' if len(rest) > 1 else ''}.")
+        word = "elite pick" if all(p["tier"] == "elite" for p in picks) else "pick"
+        more = [f"Plus {COUNT[len(rest)].lower()} more {word}"
+                f"{'s' if len(rest) > 1 else ''}."]
+        if len(rest) > 1:
+            more.append(f"{rest[-1]['player_name']} is last.")
     n = 1
     if rest:
-        cover(out / f"ig-{n}-cover.png", label, hook, more)
+        cover(out / f"ig-{n:02d}-cover.png", label, hook, more)
         n += 1
     for p in picks:
-        pick_slide(out / f"ig-{n}-{slug(p['player_name'])}.png", p)
+        pick_slide(out / f"ig-{n:02d}-{slug(p['player_name'])}.png", p)
         n += 1
     if r:
-        trust_slide(out / f"ig-{n}-why-trust-these.png", r)
+        trust_slide(out / f"ig-{n:02d}-why-trust-these.png", r)
     x_card(out / "x-card.png", label, hook, rest, r)
     pregame_captions(out, lead, picks, r, tag)
     (out / "posted.json").write_text(json.dumps(
@@ -586,8 +679,8 @@ def pregame(api, rows, label, lead, folder, limit, tag, week):
          "label": label, "picks": picks}, indent=1), encoding="utf-8")
     print(f"{len(picks)} pick(s), led by {hook['player_name']}, written to {out}")
     for p in picks:
-        print(f"   {p['player_name']:<22}{call(p):<11}{UNIT[p['market_code']]:<17}"
-              f"{price(p['price']):>5}  {p['game']}")
+        print(f"   {p['tier']:<8}{p['player_name']:<22}{call(p):<11}"
+              f"{UNIT[p['market_code']]:<17}{price(p['price']):>5}  {p['game']}")
 
 
 def grade(api, p):
@@ -651,7 +744,7 @@ def receipt(api, start, end):
     per = 6
     pages = [uniq[i:i + per] for i in range(0, len(uniq), per)]
     for i, page in enumerate(pages):
-        receipt_slide(out / f"ig-{i + 1}-receipt.png", title, sub, page, r,
+        receipt_slide(out / f"ig-{i + 1:02d}-receipt.png", title, sub, page, r,
                       page=(i, len(pages), score))
     receipt_card(out / "x-card.png", title, [when, games[0] if len(games) == 1
                                              else "Every pick I posted"],
@@ -682,9 +775,22 @@ def main():
     ap.add_argument("--to", help="receipt only: the last day of the range")
     ap.add_argument("--team", help="game only: either team's name, e.g. Steelers")
     ap.add_argument("--player", help="pick only: the player's name")
+    ap.add_argument("--players", help="game only: the card chosen by hand, "
+                    "names separated by commas, in slide order")
+    ap.add_argument("--lead", help="whose name goes on the cover, if not "
+                    "the one it would choose")
+    ap.add_argument("--skip", help="names to leave off, separated by commas: "
+                    "a player ruled out since the board was built")
+    ap.add_argument("--from-hour", type=int, default=0,
+                    help="slate only: earliest kickoff hour, Eastern (13 "
+                    "leaves out a morning game)")
     ap.add_argument("--max", type=int, default=5, help="picks on a carousel")
     ap.add_argument("--week", help="week number, if the guess is wrong")
     a = ap.parse_args()
+    if a.lead:
+        LEAD.append(a.lead.strip().lower())
+    if a.skip:
+        SKIP.extend(n.strip().lower() for n in a.skip.split(",") if n.strip())
 
     if a.kind == "receipt":
         start = dt.date.fromisoformat(a.date)
@@ -694,17 +800,22 @@ def main():
     if a.kind == "slate":
         day = dt.date.fromisoformat(a.date)
         # The night game gets a post of its own.
-        rows = elite(a.api, lambda e: kick(e).date() == day and kick(e).hour < 19)
+        rows = board(a.api, lambda e: kick(e).date() == day
+                     and a.from_hour <= kick(e).hour < 19)
         name = day.strftime("%A")
         pregame(a.api, rows, name.upper(), f"{name}'s slate.",
                 f"{day.isoformat()}-{name.lower()}-slate", a.max,
                 f"#NFL{name}", a.week)
     elif a.kind == "game":
         want = a.team.lower()
-        rows = elite(a.api, lambda e: want in e["home_team"].lower()
-                     or want in e["away_team"].lower())
+        named = [n.strip() for n in a.players.split(",")] if a.players else None
+        # A game card is the best of that game, whatever tier that is. One
+        # game rarely has four elite picks.
+        rows = board(a.api, lambda e: want in e["home_team"].lower()
+                     or want in e["away_team"].lower(),
+                     tiers=("elite", "strong", "medium"), players=named)
         if not rows:
-            raise SystemExit("the board has no elite picks for that team's game")
+            raise SystemExit("the board has no picks for that team's game")
         t = kick(rows[0])
         game = f"{short(rows[0]['away_team'])} at {short(rows[0]['home_team'])}"
         night = f"{t.strftime('%A')} night" if t.hour >= 19 else t.strftime("%A")
@@ -715,9 +826,10 @@ def main():
                 f"{t.date().isoformat()}-{slug(game)}", a.max, tag, a.week)
     else:
         want = a.player.lower()
-        rows = elite(a.api, lambda e: want in e["player_name"].lower())
+        rows = board(a.api, lambda e: want in e["player_name"].lower(),
+                     tiers=("elite", "strong", "medium"))
         if not rows:
-            raise SystemExit("that player has no elite pick on the board")
+            raise SystemExit("that player has no pick on the board")
         t = kick(rows[0])
         pregame(a.api, rows, t.strftime("%A").upper(),
                 f"{rows[0]['player_name']}, {t.strftime('%A')}.",

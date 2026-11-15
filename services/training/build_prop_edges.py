@@ -1512,7 +1512,36 @@ def main():
             -- commence_time.
             JOIN odds_events e
               ON p.provider_event_id = e.provider_event_id
+            -- Only prices the book still had up the last time we looked.
+            --
+            -- The sync writes what the book returns and never removes what it
+            -- has stopped returning. So when a book takes a player's props
+            -- down, because he was ruled out that morning, the last price we
+            -- saw for him stays in this table looking exactly like a live
+            -- one. Kenneth Walker was inactive on 15 November and sat on the
+            -- board as an elite pick an hour before kickoff, at a price no
+            -- book was offering any more.
+            --
+            -- Every row from one sync carries the same updated_at. So within
+            -- a game, a book and a market, a row older than the newest one is
+            -- a prop that was not in the last answer. The comparison is per
+            -- market on purpose: a sync that came back without a market at all
+            -- (it has happened) leaves that market's rows as they were, where
+            -- comparing per book would have emptied the board.
+            --
+            -- This is the books telling us who is out, for nothing: it reads
+            -- prices already bought. PULLED_PROPS=0 turns it off.
+            JOIN (
+                SELECT provider_event_id, bookmaker_key, market_key,
+                       MAX(updated_at) AS seen
+                FROM odds_player_props
+                GROUP BY 1, 2, 3
+            ) f ON f.provider_event_id = p.provider_event_id
+               AND f.bookmaker_key = p.bookmaker_key
+               AND f.market_key = p.market_key
             WHERE (p.line IS NOT NULL OR p.market_key = 'player_anytime_td')
+              AND (NOT (:drop_pulled)::boolean
+                   OR p.updated_at >= f.seen - INTERVAL '15 minutes')
               -- Only games that have not kicked off.
               --
               -- This table is supposed to hold the upcoming slate, and it does
@@ -1545,8 +1574,44 @@ def main():
             """
         ),
         engine,
-        params={"lookback_hours": int(os.getenv("EDGE_LOOKBACK_HOURS", "0"))},
+        params={"lookback_hours": int(os.getenv("EDGE_LOOKBACK_HOURS", "0")),
+                "drop_pulled": os.getenv("PULLED_PROPS", "1") != "0"},
     )
+
+    # Say who was dropped, so a player missing from the board has a reason
+    # in the log.
+    if os.getenv("PULLED_PROPS", "1") != "0":
+        pulled = pd.read_sql(
+            text(
+                """
+                SELECT p.player_name,
+                       COUNT(DISTINCT p.bookmaker_key) AS books,
+                       COUNT(DISTINCT p.market_key) AS markets
+                FROM odds_player_props p
+                JOIN odds_events e
+                  ON p.provider_event_id = e.provider_event_id
+                JOIN (
+                    SELECT provider_event_id, bookmaker_key, market_key,
+                           MAX(updated_at) AS seen
+                    FROM odds_player_props
+                    GROUP BY 1, 2, 3
+                ) f ON f.provider_event_id = p.provider_event_id
+                   AND f.bookmaker_key = p.bookmaker_key
+                   AND f.market_key = p.market_key
+                WHERE p.updated_at < f.seen - INTERVAL '15 minutes'
+                  AND e.commence_time > NOW()
+                GROUP BY p.player_name
+                ORDER BY 3 DESC, 1
+                """
+            ),
+            engine,
+        )
+        if len(pulled):
+            print(f"  {len(pulled)} player(s) have props a book has taken down "
+                  f"since an earlier sync, left off: "
+                  + ", ".join(f"{r.player_name} ({r.markets} market"
+                              f"{'s' if r.markets != 1 else ''})"
+                              for r in pulled.head(25).itertuples()))
 
     if odds.empty:
         # An empty slate is a state, not a failure.

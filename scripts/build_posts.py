@@ -754,8 +754,19 @@ def receipt(api, start, end):
              f"{p['player_name']} {call(p).lower()} {TIGHT[p['market_code']]}"
              f"{'' if p['actual'] is None else ' (' + num(p['actual']) + ')'}"
              for p in uniq]
-    x = "\n".join([f"The receipt. {won} of {n} posted picks were right.", "",
-                   *marks[:7], "", "Whole record: priorline.io. 21+"])
+    # As many results as one post holds, and a count of the rest.
+    head = f"The receipt. {won} of {n} posted picks were right."
+    tail = "Whole record: priorline.io. 21+"
+    shown = []
+    for m in marks:
+        left = len(marks) - len(shown) - 1
+        more = [f"and {left} more on the card"] if left else []
+        if len("\n".join([head, "", *shown, m, *more, "", tail])) > 280:
+            break
+        shown.append(m)
+    left = len(marks) - len(shown)
+    x = "\n".join([head, "", *shown,
+                   *([f"and {left} more on the card"] if left else []), "", tail])
     ig = "\n".join([
         f"The receipt. {won} of {n} posted picks were right.", "",
         "Graded at the line I posted, not the one it moved to.", "", *marks, "",

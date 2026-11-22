@@ -3,7 +3,8 @@
 ## The pipeline
 
 Seven stages. Each one invalidates whatever the stages after it produced, which
-is why ordering matters and why `scripts/refresh_pipeline.sh` exists.
+is why ordering matters and why `scripts/scheduled_update.sh` runs them in one
+fixed order.
 
 **1. Ingestion** (`jobs/ingestion/`)
 

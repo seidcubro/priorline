@@ -73,3 +73,8 @@ brand/
 # machine, not in the repository. The icons and the link preview the site
 # serves are copied into apps/web/public, and those are tracked.
 marketing/
+
+# Research, diagnostics, one-off SQL and retired scripts. Kept on my own
+# machine and copied to the server when one needs to run. Not part of what
+# the platform needs to run.
+lab/

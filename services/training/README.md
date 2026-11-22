@@ -1,92 +1,76 @@
-# Training Layout
+# Training
 
-Fifty-odd files in one directory, and only about a third of them run on a
-schedule. This says which is which, because the difference is not obvious from
-the filenames and I have gone looking for it more than once.
+Everything between the feature table and the board. All of it runs in one
+image, `docker compose run --rm training python <file>`.
 
-## The weekly pipeline
+## The pipeline
 
-These are what `scripts/scheduled_update.sh` actually invokes, in order. If one
-of them breaks, the site goes stale.
+What `scripts/scheduled_update.sh` runs, in order. If one of these breaks, the
+site goes stale.
 
 | file | job |
 |---|---|
 | `train.py` | fit the point model for one market |
-| `train_quantiles.py` | fit the quantile ensemble, same feature space |
+| `train_quantiles.py` | fit the five quantile models in the same feature space |
 | `eval.py` | score the point model on a held-out split |
-| `eval_stale_role.py` | fit the correction for a player whose role just changed |
 | `build_projections.py` | project every eligible player, priced or not |
-| `build_prop_edges.py` | price those projections against the book and tier them |
+| `build_prop_edges.py` | price those projections against the book, pick a side, tier them |
 | `grade_edges.py` | settle played picks against the box score |
+| `replay_current_rules.py` | replay the season under today's tiering, walk forward, for the record page |
 | `eval_clv.py` | score picks against the closing line |
-| `audit_freshness.py` | the gate, exits non-zero when anything is stale |
+| `eval_strategy.py` | regenerate the published record the site quotes |
+| `audit_freshness.py` | the gate: exits non-zero when anything is stale |
+| `audit_plausibility.py` | flag projections a person would not believe |
 
 ## Calibration
 
-Fitted from graded results, read at serving time. Each writes a JSON artifact
-and each has an apply module beside it, so a missing artifact means the
-correction is skipped rather than the build failing.
+Fitted from graded results and read at serving time. Each fitter writes a JSON
+artifact and has an apply module beside it, so a missing artifact means the
+correction is skipped, not that the build fails.
 
 | fitter | applier | corrects |
 |---|---|---|
-| `fit_probability_calibrator.py` | (read in `build_prop_edges`) | P(over) |
-| `fit_interval_calibrator.py` | `interval_calibration.py` | the published range |
+| `fit_probability_calibrator.py` | read in `build_prop_edges.py` | P(over) |
+| `fit_display_probability.py` | read in `build_prop_edges.py` | the probability the site shows, per side |
+| `fit_interval_calibrator.py` | `interval_calibration.py`, `interval_scale.py` | the published range |
 | `fit_median_anchor.py` | `median_anchor.py` | the median against the point projection |
 | `fit_spread_calibrator.py` | `spread_calibration.py` | how far predictions spread |
+| `fit_season_bias.py` | `season_bias.py` | drift between seasons |
+| `fit_vacated_volume.py` | `vacated_volume.py` | a backup quarterback inheriting the starter's workload |
+| `fit_gap_tiers.py` | `gap_tier.py` | which markets earn a ranking, and which way it runs |
+| `eval_stale_role.py` | read in `build_prop_edges.py` | a player whose role just changed |
 
-`odds_markets.py` maps the provider's market keys to this project's codes and is
-imported by both the API and the edge builder, which is why it lives here and is
-mounted read-only into the API's container.
+## Shared modules
 
-## Backfills and recovery
+`gap_tier.py` holds the tiering rules. `stats_ci.py` is the clustered bootstrap
+every interval on the site comes from. `odds_markets.py` maps the provider's
+market keys to this project's codes and is mounted read-only into the API.
+`market_blend.py` and `thin_sample.py` are small helpers the board imports.
 
-Run by hand, usually once, usually after something went wrong.
+## Model selection
 
-`backfill_historical_odds.py`, `backfill_projection_history.py`,
-`backfill_track_record.py`, `recover_live_picks.py`.
+`bakeoff.py` picks the model family per market on expanding-window folds and
+refuses a change that is inside the noise. `tune.py` searches hyperparameters
+scored on the same folds. `explain_model.py` checks that what a model leans on
+agrees with football.
 
-`backtest_season.py`, `backtest_quantile_ev.py` and `backtest_sides.py` rebuild
-the record from scratch on refit models. `bakeoff.py` picks the model family per
-market.
+## Backtests, backfills and recovery
 
-`eval_strategy.py` is the odd one here: it is run by hand, but it regenerates
-`apps/web/src/lib/published-record.json`, which is every performance figure the
-site states as fact and which `audit_freshness.py` check [16] compares against
-the database. Rerun it after anything that rebuilds `prop_edge_results`, or the
-audit will tell you the site and the record disagree.
+Run by hand, usually once, usually after something changed underneath.
 
-## Exploratory data analysis
+| file | job |
+|---|---|
+| `backtest_season.py`, `backtest_quantile_ev.py` | rebuild a season's picks on refit models |
+| `backtest_gap_system.py` | the walk-forward backtest the tiering was measured on |
+| `backfill_track_record.py` | write a rebuilt season into the graded record |
+| `backfill_historical_odds.py` | buy and store past prices |
+| `backfill_projection_history.py` | fill in what was projected for games already played |
+| `recover_live_picks.py` | rebuild a published board that was lost before grading |
+| `retier_live_record.py` | restore tiers a since-fixed bug mislabelled |
 
-`eda.py`, seven sections, figures and a write-up in `docs/eda/`. It is the one
-file here that starts from no hypothesis: what rows exist, what columns exist,
-what is missing, what is duplicated, what the targets look like, and whether a
-better regression is even a better bet. Sections 1 to 6 read the database and
-take under a minute; section 7 trains through `backtest_gap_system.py` and takes
-about four.
+## The rest
 
-    docker compose run --rm training python eda.py        # all of it
-    docker compose run --rm training python eda.py 1 2 3  # just those
+`simulate.py` is the Monte Carlo game simulation. `eda.py` is the exploratory
+data analysis; its figures and write-up are in `docs/eda/`.
 
-Run it again whenever the feature builder changes. Everything it found on its
-first run had been live for months, and two of them were already proved
-elsewhere in this repo and never carried across.
-
-## Analysis
-
-Everything named `eval_*` beyond the pipeline four and `eval_strategy.py`, plus
-`simulate.py`, `stress_test_edge.py`, `find_conditional_edges.py`,
-`market_disagreement.py`, `under_asymmetry.py`, `diagnose_overproj.py`,
-`debug_context.py`, `projection_log.py`, `train_residual.py` and
-`train_td_probability.py`.
-
-None of these run on a schedule and none of them are imported by anything that
-does. They are kept on purpose. Most of this project's decisions are decisions
-to *not* do something, and the script that proved it is the only record of why.
-`train_residual.py` is the clearest case: predicting the line's error instead of
-the stat is an obvious idea, it comes up again every few months, and the file is
-the answer to it. Deleting them would leave the conclusions in my head and the
-repo looking like nothing was ever tried.
-
-If one of these turns into something the pipeline needs, it moves up this page
-and into `scheduled_update.sh`. Until then it is research, and it is labelled as
-research so nobody deploys it by accident.
+    docker compose run --rm training python eda.py

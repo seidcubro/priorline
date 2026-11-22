@@ -1,3 +1,0 @@
-﻿ALTER TABLE nfl_games
-ADD COLUMN IF NOT EXISTS home_score INT,
-ADD COLUMN IF NOT EXISTS away_score INT;

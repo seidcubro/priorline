@@ -1,321 +1,266 @@
-# PriorLine
+<p align="center">
+  <a href="https://priorline.io">
+    <img src="apps/web/public/og-image.png" alt="PriorLine. Our prior. Their line." width="820">
+  </a>
+</p>
 
-I built this to answer one question before I bet: is this line wrong?
+<p align="center">
+  <a href="https://priorline.io"><img src="https://img.shields.io/badge/live-priorline.io-cda64e?style=for-the-badge&labelColor=0f1a17" alt="Live site"></a>
+  <a href="https://priorline.io/record"><img src="https://img.shields.io/badge/record-posted%20in%20full-14483b?style=for-the-badge&labelColor=0f1a17" alt="The record"></a>
+  <a href="https://priorline.io/model"><img src="https://img.shields.io/badge/method-every%20model%20explained-e9e4d0?style=for-the-badge&labelColor=0f1a17" alt="The method"></a>
+</p>
 
-It pulls every NFL player prop the books are offering, projects what the player
-will actually do, and shows me the gap. Where the gap is big enough, that's a
-bet. At least that was the idea. Read the backtest section before you believe
-any of it.
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.11-0f1a17?style=flat-square&logo=python&logoColor=cda64e" alt="Python">
+  <img src="https://img.shields.io/badge/FastAPI-0.115-0f1a17?style=flat-square&logo=fastapi&logoColor=cda64e" alt="FastAPI">
+  <img src="https://img.shields.io/badge/PostgreSQL-16-0f1a17?style=flat-square&logo=postgresql&logoColor=cda64e" alt="PostgreSQL">
+  <img src="https://img.shields.io/badge/scikit--learn-1.5-0f1a17?style=flat-square&logo=scikitlearn&logoColor=cda64e" alt="scikit-learn">
+  <img src="https://img.shields.io/badge/React-19-0f1a17?style=flat-square&logo=react&logoColor=cda64e" alt="React">
+  <img src="https://img.shields.io/badge/TypeScript-5.9-0f1a17?style=flat-square&logo=typescript&logoColor=cda64e" alt="TypeScript">
+  <img src="https://img.shields.io/badge/Vite-7-0f1a17?style=flat-square&logo=vite&logoColor=cda64e" alt="Vite">
+  <img src="https://img.shields.io/badge/Docker-Compose-0f1a17?style=flat-square&logo=docker&logoColor=cda64e" alt="Docker">
+  <img src="https://img.shields.io/badge/Caddy-TLS-0f1a17?style=flat-square&logo=caddy&logoColor=cda64e" alt="Caddy">
+  <img src="https://img.shields.io/badge/Vercel-web-0f1a17?style=flat-square&logo=vercel&logoColor=cda64e" alt="Vercel">
+  <a href="https://github.com/seidcubro/player-prop-machine-learning-analysis-platform/actions/workflows/ci.yml"><img src="https://github.com/seidcubro/player-prop-machine-learning-analysis-platform/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+</p>
 
-The full method, every model, the calibration and every idea I tested and threw
-out, is in [docs/MODEL.md](docs/MODEL.md). It's also on the site at
-[priorline.io/model](https://priorline.io/model).
+---
 
+I built this to answer one question before I bet: **is this line wrong?**
+
+PriorLine pulls every NFL player prop the books are offering, projects what the
+player will do, and shows the gap between my number and theirs. Every pick is
+then graded against the price it was offered at, and the whole record is
+posted, including the parts written in red.
+
+It runs by itself. Five timers on one server ingest the games, rebuild the
+features, retrain eleven models a week, price the board, grade the results and
+audit their own freshness.
+
+| | |
+|---|---|
+| **11** markets modelled | passing, rushing, receiving, touchdowns |
+| **12,000+** picks graded | each one against the price it was offered at |
+| **5** seasons of game data | 2022 to now, play by play |
+| **1** person | design, models, API, site, server |
+
+## How it works
+
+```mermaid
+flowchart LR
+    A[nflverse<br/>games, snaps, play by play] --> B[Features<br/>per player, per market]
+    B --> C[Point model<br/>one family per market]
+    B --> D[Quantile ladder<br/>q10 to q90]
+    O[The Odds API<br/>lines and prices] --> E
+    C --> E[The board<br/>gap, side, tier]
+    D --> E
+    E --> F[FastAPI]
+    F --> G[priorline.io]
+    E --> H[Grading<br/>against the box score]
+    H --> I[Calibration<br/>refit from results]
+    I --> E
+    H --> G
 ```
-nflverse game data
-  -> rolling and situational features per player per market
-  -> one model per market
-  -> quantile models for the outcome distribution
-  -> sportsbook lines from The Odds API
-  -> edge = projection vs line, win probability off the distribution
-  -> API -> dashboard
-```
 
-Postgres, FastAPI, scikit-learn, React, Docker.
+- **Ingestion** reads nflverse: box scores, snap counts, depth charts, injuries
+  and play by play.
+- **Features** are built per player per market: rolling production, role,
+  play context, the opposing defense against his position, the game and the
+  venue.
+- **Models**: one point model per market, its family chosen by a walk-forward
+  bakeoff, plus five quantile models that give the shape of the outcome.
+- **The board** prices each projection against the best line on offer, picks a
+  side from the median, and ranks picks within each market.
+- **Grading** settles every pick against the box score at the price it was
+  posted at. The calibrators are refitted from those results.
+- **The audit** runs last and fails the build if anything is stale.
 
 ## Does it work?
 
-Depends what you ask it to do. The head-on version, project every player and bet
-wherever I disagree with the book, loses money. I trained on 2022 through 2024,
-ran the whole 2025 season blind, and graded 6,736 picks against real lines:
-51.5% hit rate against a 53.9% break-even, -4.3% ROI. Prop vig is heavier than
-the -110 textbook number, and my biggest disagreements with the line were my
-worst bets.
+Honest answer: not yet in the way the pitch sounds, and the site says so.
 
-Then I stopped grading and started dissecting, and the loss wasn't symmetric.
+The head-on version, project every player and bet wherever I disagree with the
+book, loses. I trained on 2022 through 2024, ran the whole 2025 season blind
+and graded 6,736 picks against real lines: 51.5% right where the prices needed
+53.9%.
 
-**My under picks beat their break-even in four of six markets. My over picks
-lost everywhere. And I was picking overs 60% of the time.**
+This season, under the rules the board uses today, replayed week by week on
+only what was known at the time (weeks 1 to 11, as of 22 November 2026):
 
-Two causes, stacked:
+| Tier | Picks | Right | Prices needed |
+|---|---|---|---|
+| Elite | 321 | 57.9% | 58.9% |
+| Strong | 321 | 60.4% | 63.1% |
+| Medium | 321 | 53.6% | 58.0% |
 
-1. **Books shade prop lines toward the over.** Blind unders hit above 50% raw in
-   every market, and the shade grows with the size of the name: raw under hit
-   rates on the top third of lines run 54-58%. Casual money bets stars to go
-   over, and the books lean into it. This is the classic square-bet pattern and
-   my data reproduces it cleanly.
-2. **My models predicted the mean. A line sits at the median.** Yardage stats
-   are right-skewed, so the mean is always above the median, and a
-   mean-predicting model hallucinates over-value on nearly every prop. My real
-   signal was being aimed at the structurally losing side.
+Elite led its price through week 5 and has trailed it since. The live numbers
+are at [priorline.io/record](https://priorline.io/record), and they move every
+week.
 
-The proof there was signal underneath: my unders beat *blind* unders by 2 to 5
-points in every market. To say under, the model had to overcome its own upward
-bias first.
+What I have learned so far, each one the hard way:
 
-So I rebuilt side selection and then spent as much effort trying to break the
-result as I did finding it. `stress_test_edge.py` is that attack, and it changed
-two of my conclusions.
+- **I could not out-predict the market on yardage.** Neither could a model
+  handed the market's own number. Better projections there did not turn into
+  better picks.
+- **Books shade props toward the over**, and more so on big names. A model
+  that predicts the mean reads over-value on nearly every prop, because a line
+  sits at the median and yardage is skewed.
+- **Calibration matters more than accuracy.** Probabilities that ran 14 to 29
+  points hot made every edge on the board look bigger than it was.
+- **The game log lied by omission.** A player who took the field and recorded
+  nothing had no row at all, one game in eight, so the model had never seen a
+  blank game. That was fixed on 22 November 2026.
 
-The first thing it killed was the model's role. Blind star-unders hit 55.4%.
-Model-filtered ones hit 55.8%. That 0.4 point difference is noise, so **the edge
-is structural, not predictive**. My models aren't what makes this work. Saying
-otherwise would have been the easiest thing in the world to get wrong, because I
-wanted the model to matter.
+The full method, every model and every idea I tested and threw out is in
+[docs/MODEL.md](docs/MODEL.md) and on the site at
+[priorline.io/model](https://priorline.io/model).
 
-The second was my significance claim. I originally computed standard errors per
-pick, which assumes 6,000 independent bets. They aren't independent, picks on the
-same slate share weather and game scripts. Bootstrapping by slate instead:
+## Engineering I am proud of
 
-| variant | edge | 95% CI |
-|---|---|---|
-| star unders, best price | +3.3% | [+0.2%, +6.1%] |
-| star unders, average price | +2.0% | [-1.0%, +4.8%] |
-| 2023/24 star unders, best price | +7.4% | [-0.4%, +14.2%] |
+<details>
+<summary><b>Model selection that refuses noise</b></summary>
 
-It barely clears zero, and only when I take the best available price. At average
-prices it isn't significant at all. The independent-season check crosses zero on
-its own too, since it's only twelve slates. Line shopping isn't a bonus on top of
-this strategy, it's half of it.
-
-What survived is the mechanism, and it survived the test I trust most. Sorting by
-line size gives a clean gradient:
-
-| line tier | edge |
-|---|---|
-| top 25% | +3.3% |
-| top 50% | +2.4% |
-| bottom 50% | -1.3% |
-| bottom 25% | -3.1% |
-
-Data-mined patterns don't usually line up in a straight dose response like that.
-The bigger the name, the harder the public backs the over, the more the book
-shades it, the more the under is worth. Week to week, 13 of 20 slates were
-positive with a median slate edge of +4.3%.
-
-It also concentrates in counting stats, which makes sense: receptions +7.6%,
-rush attempts +5.4%, rushing yards +2.2%, receiving yards +1.3%, and passing
-yards **-10.0%**, which is why that market is excluded. People bet their star to
-catch passes, not to fall short.
-
-That finding is what the board is built on now. Within each market, picks are
-ranked by how far the projection sits from the line as a share of the line. The
-top fifth is elite, and elite is the only tier put forward as a pick. On the full
-graded record on 9 November 2026, elite has won 52.7% of 3,094 picks against the
-51.6% its prices needed. Every other tier has fallen short of its price, and the
-board as a whole has won 52.0% against 53.3%. It's a small edge rather than a
-proven one, which is why closing line value is tracked alongside it, and why the
-whole record is published at [priorline.io/record](https://priorline.io/record)
-rather than only the tier that works.
-
-The general lesson cost me four failed experiments to learn: I couldn't
-out-predict the market, and neither could a residual model given the market's
-own number. The edge wasn't in better projections. It was in market structure,
-picking the right side of a known public bias, filtering with a median instead
-of a mean, and always taking the best price.
-
-## Models
-
-The family for each market is picked by `bakeoff.py`, not by me guessing.
-
-| Market | Active model | Family |
-|---|---|---|
-| rush_att | `ridge_v2` | ridge |
-| rush_yds | `enet_v2` | elastic net |
-| recs | `enet_v2` | elastic net |
-| rec_yds | `rf_default` | random forest |
-| pass_yds | `hgb_v1` | histogram gradient boosting |
-| pass_att | `hgb_v1` | histogram gradient boosting |
-| pass_completions | `hgb_v1` | histogram gradient boosting |
-| pass_td | `pois_v4` | poisson |
-| rush_td | `rf_v10` | random forest |
-| rec_td | `rf_v10` | random forest |
-| any_td | `rf_v10` | random forest, projected but never priced |
-
-The active model per market lives in the `active_models` table, so this is a
-snapshot. Touchdown markets are scored as classifiers with log loss and AUC,
-not R², because R² on a one-in-five yes/no outcome is capped well below 1.
-
-### How the family gets picked
+<br>
 
 The obvious approach is to try a few models and keep whichever wins on a test
-split. That's how you ship noise. With ten candidates and one split, one of them
-wins by luck.
+split. With ten candidates and one split, one of them wins by luck.
 
-So every candidate gets scored on the same expanding-window folds. Train on
+So every candidate is scored on the same expanding-window folds: train on
 everything before a cut, test on the block after it, walk the cut forward. A
-challenger only replaces the incumbent if it beats it by more than one standard
-error of the fold-to-fold difference. Last run that rule took four changes and
-rejected three where the gain was inside the noise.
+challenger replaces the incumbent only if it beats it by more than one standard
+error of the fold-to-fold difference. The last run took four changes and
+refused three where the gain was inside the noise.
 
-Two results I didn't expect.
+Two results I did not expect. Linear models won three markets: ridge beats
+every tree on rush attempts, and elastic net wins rushing yards and receptions.
+And LightGBM lost everywhere, with train-minus-test gaps of 0.34 to 0.51. It
+was memorising, and the bakeoff prints that gap for every candidate, which is
+what caught it.
 
-Linear models won three markets. Ridge beats every tree on rush attempts at
-R² 0.747, and elasticnet wins rushing yards and receptions, both with basically
-no gap between train and test. Rushing volume is close to linear in carry share
-and opponent form, so a forest just adds variance. I only found this because I
-threw ridge in as a sanity check, not expecting it to place.
+| Market | Family |
+|---|---|
+| rush_att | ridge |
+| rush_yds, recs | elastic net |
+| rec_yds | random forest |
+| pass_yds, pass_att, pass_completions | histogram gradient boosting |
+| pass_td | poisson |
+| rush_td, rec_td, any_td | random forest, scored as classifiers |
 
-LightGBM lost everywhere. Worse than a plain random forest, with train-minus-test
-gaps of 0.34 to 0.51. It was memorizing. The bakeoff prints that gap for every
-candidate and flags anything over 0.35, which is what caught it.
+The active model per market lives in a table, so this is a snapshot.
 
-### How much room is left
+</details>
 
-I split each market's variance into the part that differs between players
-(learnable) and the part that's game-to-game noise for the same player (not
-learnable). The ratio gives the R² a model would get if it knew every player's
-true average perfectly.
+<details>
+<summary><b>A freshness audit that tests instead of trusting</b></summary>
 
-For receiving yards, the noise (442.7) is bigger than the signal (346.2). More
-than half the variation in that market is unpredictable. Five markets score
-*above* that ceiling, which means the context features are picking up
-matchup-level information beyond player identity.
-
-So the ceiling is a floor, not a cap. There's room left, but it's in
-game-specific information: late injury news, weather, actual game plans. Most of
-that is stuff I don't have, not a modeling technique I'm missing.
-
-### Win probability
-
-The number next to a projection matters more than the projection. It used to
-come from assuming a bell curve with a hand-capped standard deviation, which
-produced things like 95% confidence on a rushing prop. Grading old picks showed
-every bucket was 14 to 29 points overconfident.
-
-Now I fit quantiles (q10 through q90) per market and read P(over) off the
-predicted distribution, so the spread is learned per player instead of assumed.
-A boom-or-bust receiver gets a wide interval. A steady possession back gets a
-narrow one.
-
-| quoted | hit rate before | after |
-|---|---|---|
-| ~0.96 -> 0.90 | 0.667 | 1.000 (n=2) |
-| ~0.83 | 0.583 | 0.800 |
-| ~0.74 | 0.591 | 0.659 |
-| ~0.57 | 0.434 | 0.528 |
-
-### What the site actually publishes
-
-The quantiles fixed the shape of the probability. They did not fix its level:
-graded on 2025, picks the model rated at 70% or better won 57%, and elite picks
-claimed 65.9% against 53.5% that landed. An inflated probability is not only a
-wrong number on a page, it is the input to the EV filter, so it inflates every
-edge on the board.
-
-So the published probability is corrected per side, fitted on graded picks,
-using the model's number and the price together:
-
-| side | weight on the model | weight on the price | log loss on the holdout |
-|---|---|---|---|
-| under | +0.42 | +0.54 | 0.7233 to 0.6911 |
-| over | −0.48 | +0.94 | 0.7108 to 0.6903 |
-
-On unders the model's confidence predicts hits. On overs the weight is negative:
-once you know the price, a more confident over is slightly less likely to land.
-Overs stay on the board with an honest number beside them rather than being
-hidden.
-
-Which picks get made is unchanged. Tiers, best bets and value flags are still
-chosen on the model's own edge, because re-selecting them on the corrected
-probability tested worse. See `fit_display_probability.py`.
-
-## Monte Carlo
-
-Every market used to be predicted on its own, so a quarterback's projected
-passing yards had no arithmetic relationship to the receiving yards of the men
-catching the ball. `simulate.py` runs 20,000 games per matchup and reads every
-market off the same simulated outcomes.
-
-Per team: team volume from the Vegas total and spread, Dirichlet shares split by
-stick-breaking so touches sum to the team total, gamma per-touch yards, and the
-QB's passing yards derived as the sum of his receivers' yards. Dispersion is
-fitted from 2023+ logs, not guessed.
-
-I checked it against reality instead of against my assumptions, which is good
-because my assumption was wrong:
-
-| | simulated | real |
-|---|---|---|
-| QB pass yds vs lead receiver | +0.510 | +0.697 |
-| WR1 vs WR2 rec yds | -0.001 | +0.041 |
-
-I expected teammates to correlate strongly negative since they compete for
-targets. They don't. Shared team volume pushes them together and target
-competition pushes them apart, and in real games those cancel almost exactly.
-The simulator getting ~0 was correct. Don't "fix" it.
-
-It's not wired into the served edges yet. It reproduces the correlation
-structure but I haven't shown it beats the quantile models on P(over), and that
-test needs graded results.
-
-## Features
-
-Per player, per market:
-
-Rolling production over the last five games: mean, weighted mean, stddev, trend,
-plus median, trimmed mean, min and max so one blowup game doesn't drag
-everything, and a season-to-date baseline to revert toward.
-
-Role: snap share, depth chart rank, how that rank has changed since the window,
-days since last game, teammate injuries at the same position.
-
-Play context from play-by-play: red zone targets and carries, third down usage,
-shotgun rate, air yards, YAC, EPA per play, in-game win probability, pace.
-
-Opponent defense by position group. What this defense actually gives up to
-running backs specifically, not a team total. A team can look fine overall and
-still be soft against receiving backs, and the team number hides exactly the
-matchup the line is priced on.
-
-Game and venue: spread, total, implied team total, temperature, wind, indoor or
-not, turf or grass, home or away, rest days, divisional game.
-
-## Staleness
-
-This is what bit me hardest, so it gets a guard.
+<br>
 
 Anything known before kickoff (depth chart, injuries, the line, weather, the
 opponent) used to be read off the player's most recent stored feature row. In
-season that row is a week old and you'd never notice. In September it's eight
-months old, and you get a back projected as the starter he was last January.
+season that row is a week old. In September it is eight months old, and you get
+a back projected as the starter he was last January.
 
-Houston traded for David Montgomery over the offseason. My own 2026 depth chart
-had it right, Montgomery RB1 and Woody Marks RB2, but the edge builder was
-reading Marks' January row and projecting him like the workhorse he used to be.
+Houston traded for David Montgomery over the offseason. My own depth chart had
+it right, and the board was still projecting the man he replaced as the
+workhorse. Three more turned up when I went looking: opponent features that
+described the defenses a player had just faced and not the one he was about to
+play, traded players dropped silently by the check written to catch them, and
+two team codes that never matched.
 
-Three more turned up when I went looking:
-
-Opponent features described the wrong teams. They were averaged over the lookback
-window, and each window game's value is what *that* game's opponent allowed. So
-the matchup signal measured the defenses a player had just faced, not the one he
-was about to play. One stored feature read 118.8 where the actual opponent was
-giving up 78.6.
-
-Traded players were dropped silently. The sanity check compared the game's teams
-against the player's team on his last feature row, which inverts the whole point.
-A traded player, exactly what the check existed to catch, got thrown out because
-his old team wasn't in the matchup. Montgomery had 12 props up for Houston and
-produced zero edges. 94 players were affected.
-
-Two team codes never matched. I had the Rams and Washington as `LAR` and `WSH`.
-nflverse writes `LA` and `WAS`.
-
-All of it is enforced now instead of trusted:
+All of it is enforced now. The audit seeds every feature with a sentinel value,
+runs the refresh against a real upcoming game, and looks at what changed. My
+first version read the source with a regex and was wrong both ways.
 
 ```bash
 docker compose run --rm training python audit_freshness.py
 ```
 
-It exits non-zero if any of it comes back. The part that matters is how it checks
-whether a feature actually gets refreshed: it seeds every feature with a sentinel
-value, runs the refresh against a real upcoming game, and sees what changed. My
-first version read the source with a regex and was wrong both ways. It missed
-features set through a loop variable and raised ten false alarms on ones that
-were fine.
+It exits non-zero if any of it comes back.
 
-`scripts/refresh_pipeline.sh` runs the whole chain in dependency order and ends
-with the audit.
+</details>
+
+<details>
+<summary><b>Probabilities read off a learned distribution</b></summary>
+
+<br>
+
+The number beside a projection matters more than the projection. It used to
+come from a bell curve with a hand-capped standard deviation, which produced
+95% confidence on a rushing prop.
+
+Now five quantile models per market give the shape of the outcome, so the
+spread is learned per player. A boom-or-bust receiver gets a wide interval and
+a steady possession back a narrow one. A calibration map fitted on past
+results corrects the level, and the published probability is corrected per
+side using the model's number and the price together.
+
+On unders the model's confidence predicts hits. On overs the weight comes out
+negative: once you know the price, a more confident over is slightly less
+likely to land. Overs stay on the board with an honest number beside them.
+
+</details>
+
+<details>
+<summary><b>A Monte Carlo that got teammates right when I had them wrong</b></summary>
+
+<br>
+
+Every market used to be predicted alone, so a quarterback's passing yards had
+no arithmetic relationship to the receiving yards of the men catching the
+ball. `simulate.py` runs 20,000 games per matchup and reads every market off
+the same simulated outcomes: team volume from the Vegas total and spread,
+shares split so touches sum to the team total, and the quarterback's yards
+derived as the sum of his receivers'.
+
+| | Simulated | Real |
+|---|---|---|
+| QB pass yards vs lead receiver | +0.510 | +0.697 |
+| WR1 vs WR2 receiving yards | -0.001 | +0.041 |
+
+I expected teammates to correlate strongly negative, since they compete for
+targets. They do not. Shared team volume pushes them together, target
+competition pushes them apart, and in real games those cancel almost exactly.
+
+</details>
+
+<details>
+<summary><b>News that beats the feed</b></summary>
+
+<br>
+
+The injury feed is the official Wednesday to Friday report, so nothing that
+breaks after it reaches the board in time. Puka Nacua was ruled out of a Monday
+game while the site still projected him for six receptions.
+
+Three things close that gap. The hourly refresh re-reads injuries and depth
+charts before it rebuilds. A prop a book has taken down drops off the board.
+And I can rule a player out directly, which beats the feed until it expires:
+
+```bash
+curl -X POST -H "X-Admin-Token: $ADMIN_TOKEN" \
+  "http://localhost:8000/api/v1/jobs/player_status?player=Puka%20Nacua&status=Out&hours=24"
+```
+
+When a starting quarterback is ruled out, his backup inherits the workload.
+Running backs and receivers were tested the same way and refused.
+
+</details>
+
+## In season
+
+Five systemd timers run `scripts/scheduled_update.sh` in different modes
+(Eastern time):
+
+| When | Mode | Does |
+|---|---|---|
+| hourly at :05 | `--closing` | if a game kicks off within 90 minutes, buy its prices and rebuild the board |
+| daily 8:00 | `--daily` | ingest results, rebuild features, grade picks, refit calibration |
+| daily 17:00 | `--board` | fresh injury reports, projections and the board |
+| Fri 9:00 | `--early` | price Sunday's slate so the board is live from Friday |
+| Tue 1:00 | `--weekly` | retrain every market after Monday night is graded |
+
+Setup is in [deploy/README.md](deploy/README.md) and the modes are explained in
+[scripts/README.md](scripts/README.md).
 
 ## Running it
 
@@ -326,114 +271,37 @@ docker compose up -d api
 npm run dev --prefix apps/web
 ```
 
-Full refresh in dependency order, ending with the audit:
+Model artifacts are not in git. The weekly mode regenerates them:
 
 ```bash
-sh scripts/refresh_pipeline.sh
+sh scripts/scheduled_update.sh --weekly
 ```
 
-Odds sync separately. Books only post the markets I use a few days before
-kickoff, and The Odds API bills per event per market, so the pull is scoped to
-the next three days. Both endpoints need the admin token:
-
-```bash
-curl -X POST -H "X-Admin-Token: $ADMIN_TOKEN" "http://localhost:8000/api/v1/odds/sync/events"
-curl -X POST -H "X-Admin-Token: $ADMIN_TOKEN" "http://localhost:8000/api/v1/odds/sync/player_props?days_ahead=3"
-```
-
-Model artifacts aren't in git. Regenerate them with the refresh script.
-
-## In season
-
-On the server, five systemd timers run `scripts/scheduled_update.sh` in
-different modes (Eastern time):
-
-| When | Mode | Does |
-|---|---|---|
-| hourly at :05 | `--closing` | if a game kicks off within 90 minutes, buy its prices and rebuild the board |
-| daily 8:00 | `--daily` | ingest results, rebuild features, grade picks, refit calibration, buy prices for the next three days |
-| daily 17:00 | `--board` | fresh injury reports, projections and the board, no credits |
-| Fri 9:00 | `--early` | price Sunday's slate so the board is live from Friday |
-| Tue 1:00 | `--weekly` | retrain every market after Monday night is graded |
-
-Retraining weekly is on purpose. Every week adds real games and the record is
-the whole point. Setup is in [`deploy/README.md`](deploy/README.md) and the modes
-are explained in [`scripts/README.md`](scripts/README.md).
-
-Closing line value is why the closing and early runs exist. Win/loss over a few
-hundred bets is mostly variance at a 53% break-even, but whether I consistently
-take numbers the market later moves toward settles the question much faster.
-Until the early buy existed, 90% of props had a single captured price, so open
-and close were the same row and CLV read zero by construction.
-
-```bash
-docker compose run --rm training python eval_clv.py
-```
-
-## When the news beats the feed
-
-The injury feed is nflverse's copy of the official Wednesday to Friday report,
-so nothing that breaks after it reaches the board in time: a Saturday
-downgrade, a Sunday morning scratch, the inactive list ninety minutes before
-kickoff. Puka Nacua was ruled out of a Monday game while the site still
-projected him for six receptions.
-
-Two things close that gap.
-
-The hourly refresh re-reads injuries and depth charts before it rebuilds, so
-the board is never priced on news older than an hour. And a person can rule a
-player out directly, which beats the feed until it expires:
-
-```bash
-curl -X POST -H "X-Admin-Token: $ADMIN_TOKEN" \
-  "http://localhost:8000/api/v1/jobs/player_status?player=Puka%20Nacua&status=Out&hours=24"
-```
-
-`status=Active` is the undo, for a player the report still lists who has since
-been cleared. Ambiguous names are refused rather than guessed: marking the
-wrong Brown out is worse than marking nobody out.
-
-When a starting quarterback is ruled out, his backup inherits the workload
-rather than keeping a backup's projection. Drew Lock went from 79 projected
-passing yards to 211 against a line of 204.5. Running backs and receivers were
-tested the same way and refused; see `fit_vacated_volume.py`.
-
-## What I'd do next
-
-Measure closing line value properly now that props get an early price and a
-closing price. It's the fastest honest test of whether this works.
-
-Grow elite volume through coverage, not by lowering the bar. Elite averaged about
-90 picks a game day in 2025; a thin board is almost always prices not bought yet.
-
-Keep adding features where there's real headroom. Expected touchdowns was the
-last one that helped. The yardage markets are already close to their ceiling, and
-three separate tests say better projections there don't turn into more profit.
-
-Things I tried that are done or dead, so nobody tries them again: predicting the
-line's residual (a coin flip in every market), rescuing the strong tier with
-filters (it misses break-even by less than its own standard error), and
-correcting the median to a true midpoint (it fixed the calibration and erased the
-edge). Details in [docs/MODEL.md](docs/MODEL.md).
+Prices come from The Odds API, which bills per event per market, so a manual
+run buys none unless it is asked to (`ODDS=1`).
 
 ## Layout
 
-- `services/training/` training, evaluation, bakeoff, simulation, edge building,
-  grading, backtest, freshness audit. Most of the work is here, and about a
-  third of it runs on a schedule. `services/training/README.md` says which.
-- `services/api/` FastAPI backend.
-- `jobs/ingestion/` the nflverse pipeline.
-- `apps/web/` React frontend.
-- `db/` schema, migrations, backfills. `db/README.md` explains the split.
-- `scripts/` the scheduled refresh and its modes. `scripts/README.md`.
-- `deploy/` production compose, Caddy, systemd timers, migration script.
-- `docs/` architecture, ML pipeline, deployment reasoning.
-- `docs/eda/` the exploratory data analysis and its figures.
-  [FINDINGS.md](docs/eda/FINDINGS.md) is the write-up: what is actually in
-  the feature table, which of it is duplicated, which of it is missing and
-  why that matters, and why a better regression is not a better bet.
+| Path | What is in it |
+|---|---|
+| [`services/training/`](services/training/) | training, bakeoff, the board, grading, calibration, the audits |
+| [`services/api/`](services/api/) | FastAPI backend and the feature builder |
+| [`jobs/ingestion/`](jobs/ingestion/) | the nflverse pipeline |
+| [`apps/web/`](apps/web/) | React frontend |
+| [`db/`](db/) | schema and migrations |
+| [`scripts/`](scripts/) | the scheduled refresh and its modes |
+| [`deploy/`](deploy/) | production compose, Caddy, systemd timers |
+| [`docs/`](docs/) | architecture, the model, the pipeline, the data analysis |
+
+Start with [docs/MODEL.md](docs/MODEL.md) for the method,
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how the pieces fit, and
+[docs/eda/FINDINGS.md](docs/eda/FINDINGS.md) for what is in the data.
 
 ## Author
 
-Seid Cubro. [LinkedIn](https://www.linkedin.com/in/seid-cubro),
-[seidcubro.vercel.app](https://seidcubro.vercel.app)
+**Seid Cubro**
+
+<a href="https://www.linkedin.com/in/seid-cubro"><img src="https://img.shields.io/badge/LinkedIn-seid--cubro-0f1a17?style=flat-square&logo=linkedin&logoColor=cda64e" alt="LinkedIn"></a>
+<a href="https://seidcubro.vercel.app"><img src="https://img.shields.io/badge/Portfolio-seidcubro.vercel.app-0f1a17?style=flat-square&logo=vercel&logoColor=cda64e" alt="Portfolio"></a>
+
+<sub>21+. Projections, not betting advice. Gambling problem? Call 1-800-GAMBLER.</sub>

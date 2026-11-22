@@ -100,50 +100,24 @@ score a pick against one.
   that does not pass a name would retrain everything as a random forest and
   repoint the platform at it.
 
-## scripts/windows
-
-`run_update.cmd` is the Task Scheduler entry point. It waits for Docker, loads
-`.env`, runs one mode, and appends to `logs/update-YYYYMMDD.log`.
-
-Credits are only spent when the second argument is the word `odds`:
-
-```
-schtasks /Create /TN "PriorLine Early"   /TR "...
-un_update.cmd --early odds"  /SC WEEKLY /D FRI /ST 09:00 /F
-schtasks /Create /TN "PriorLine Daily"   /TR "...\run_update.cmd --daily odds" /SC DAILY  /ST 08:00 /F
-schtasks /Create /TN "PriorLine Closing" /TR "...\run_update.cmd --closing"    /SC HOURLY /ST 08:05 /F
-schtasks /Create /TN "PriorLine Board PM" /TR "...\run_update.cmd --board"   /SC DAILY  /ST 17:00 /F
-schtasks /Create /TN "PriorLine Weekly"  /TR "...\run_update.cmd --weekly"    /SC WEEKLY /D TUE /ST 01:00 /F
-```
+## Things to know before touching it
 
 The weekly retrain takes about an hour: eleven markets, each a point model, an
-evaluation and five quantile models, measured at 33 minutes for the training
-itself plus the ingest and rebuild around it. It runs at one in the morning so
-it is finished well before the eight o'clock refresh rather than competing with
-it for the same containers.
+evaluation and five quantile models, plus the ingest and rebuild around it. It
+runs at one in the morning so it is finished well before the eight o'clock
+refresh.
 
 Do not edit `scheduled_update.sh` while a run is in flight. `sh` reads a script
 incrementally, so a change shifts the byte offset under the running interpreter
 and it dies with a syntax error in a file that is perfectly valid.
 
-Docker Desktop has to be running and the machine has to be awake. That is the
-reason to move this to a host that is always on.
+## The rest of this folder
 
-## scripts/weekly_update.sh, scripts/refresh_pipeline.sh
-
-The earlier manual runners, kept because they are what the docs and my own
-habits refer to. `scheduled_update.sh` is what the scheduler calls.
-
-## scripts/dev
-
-Developer convenience scripts for local work.
-
-## scripts/pipeline
-
-End-to-end pipeline runners and smoke-test flows (`run_market_pipeline.ps1`).
-
-Note: one-off patch scripts that regex-rewrote source files during past debugging
-sessions (`scripts/patches/`, root `patch_*.py`) were removed in the 2026-07-05 repo
-cleanup once confirmed already-applied and unreferenced. If you need to make a
-similar targeted fix in the future, prefer a normal editor change or a small,
-reviewable diff over a standalone patch script.
+| file | job |
+|---|---|
+| `pull.sh` | `git pull` on the server, then regenerate the published record |
+| `preflight.sh` | check the things that have broken before, ahead of a long build |
+| `scheduler_status.sh` | what each timer last did and when it runs next |
+| `refresh_star_scores.sql` | recompute player prominence after an ingest |
+| `build_brand.py` | draw the icons and the link preview the site serves |
+| `build_posts.py` | draw the social cards from the live board |

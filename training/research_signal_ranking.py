@@ -1,0 +1,129 @@
+"""Which number on a pick actually predicts whether it makes money?
+
+Not whether it wins. AUC against `hit` is a trap: a -200 favourite wins more
+often than a +150 dog by arithmetic, so the price scores 0.5446 on that metric
+and means nothing. The question is whether sorting by a signal sorts by profit.
+
+ROI by decile, 8,548 graded picks, 2023-2025:
+
+    signal                    d1     d2     d3     d4     d5     d6     d7     d8     d9    d10   spread
+    win probability        +4.1%  -4.3%  -2.0%  -8.0%  -1.2%  -4.6%  +0.2%  +4.3%  -2.0%  +3.5%    +0.9%
+    expected value         -2.2%  -4.6%  -5.5%  -5.3%  -4.1%  +0.5%  +4.3%  +2.5%  +3.0%  +1.3%    +5.6%
+    gap relative to line   +1.1%  -2.5%  -0.7%  -2.5%  -0.6%  +0.3%  -2.9%  -1.9%  -2.0%  +1.7%    +0.5%
+    the price              +7.5%  -4.5%  +1.1%  -2.8%  -1.3%  -4.6%  -1.3%  -0.8%  -2.4%  -1.1%    -3.2%
+
+Expected value is the only one of the four that ranks profit, and it is the one
+the board selects on. Its bottom two deciles return -3.4% and its top two +2.2%,
+a spread of 5.6 points.
+
+Two things follow.
+
+The gap to the line, which is what the gap-tier system ranked on from 27
+September until it was reverted, has a spread of half a point. It does not rank
+profit. That is the same conclusion the head-to-head reached from the other
+direction, reached here without reference to any threshold.
+
+And the win probability on its own barely ranks either, at +0.9%. It is only
+useful once the price is subtracted from it, which is what expected value is.
+So the lever for improving this product is not a better projection and not a
+better probability in isolation: it is a probability that discriminates better
+*against the price*, and that is what tune.py scores candidates on.
+"""
+
+import os, sys
+
+import numpy as np, pandas as pd, stats_ci as S
+from sqlalchemy import create_engine, text
+import build_prop_edges as bp
+pd.set_option("display.width",250)
+e=create_engine(bp.DATABASE_URL, future=True)
+# Which population to rank over.
+#
+# source='backtest' is the walk-forward reconstruction, which is the right
+# population for a historical claim and the wrong one for asking whether the
+# board we are running right now ranks profit. SOURCE='' drops the filter and
+# reads every graded pick, live ones included; SINCE restricts by date.
+#
+#   SOURCE=  SINCE=2026-09-01  python research_signal_ranking.py
+SOURCE = os.getenv("SOURCE", "backtest")
+SINCE = os.getenv("SINCE", "")
+where = ["hit IS NOT NULL", "win_prob IS NOT NULL"]
+params = {}
+if SOURCE:
+    where.append("source = :source")
+    params["source"] = SOURCE
+if SINCE:
+    where.append("game_date >= :since")
+    params["since"] = SINCE
+d=pd.read_sql(text("""
+  SELECT market_code, game_date, recommended_side, win_prob, expected_value,
+         hit, price_american, line, projection_median, edge_tier
+  FROM prop_edge_results
+  WHERE """ + " AND ".join(where)), e, params=params)
+print(f"population: source={SOURCE or 'any'}  since={SINCE or 'all time'}")
+
+# Say what is actually in the frame, every time.
+#
+# SOURCE= drops the filter, which mixes the live board with the walk-forward
+# reconstruction of the same weeks, and the two are not the same thing: one is
+# what was published and settled, the other is what today's models would have
+# said about games they have since been trained on. Mixed, the 2026 season read
+# -84.74 units while the board autopsy over the same weeks read +69.83, and
+# nothing in the output said why. Ask for source=live to read the record.
+mix = pd.read_sql(text("""
+  SELECT source, count(*) AS n, min(game_date) AS first, max(game_date) AS last
+  FROM prop_edge_results
+  WHERE hit IS NOT NULL AND win_prob IS NOT NULL    AND (:since = '' OR game_date >= :since)
+  GROUP BY source ORDER BY n DESC
+"""), e, params={"since": SINCE})
+for r in mix.itertuples(index=False):
+    print(f"  {str(r.source):<10}{r.n:>7} rows  {r.first} to {r.last}")
+if SOURCE == "" and len(mix) > 1:
+    print("  WARNING: this frame mixes the live board with a backtest "
+          "reconstruction of the same games. Pass SOURCE=live for the record.")
+pay=np.where(d.price_american>0, d.price_american/100.0, 100.0/d.price_american.abs())
+d["units"]=np.where(d.hit.astype(bool), pay, -1.0)
+d["cluster"]=d.game_date.astype(str)
+d["breakeven"]=1.0/(1.0+pay)
+d["edge"]=d.win_prob-d.breakeven
+d["gap_rel"]=(d.projection_median-d.line).abs()/d.line.abs().clip(lower=0.5)
+print(f"{len(d):,} graded rows. ROI by decile of each candidate signal.\n")
+def deciles(col, label):
+    v=d[col].replace([np.inf,-np.inf],np.nan)
+    m=v.notna()
+    g=d[m].copy(); g["q"]=pd.qcut(v[m].rank(method="first"),10,labels=False)
+    out=[]
+    for i in range(10):
+        s=g[g.q==i]
+        out.append(s.units.mean())
+    lo=g[g.q<=1]; hi=g[g.q>=8]
+    w=hi.units.to_numpy()
+    r,l,h=S.clustered_bootstrap(lambda i,w=w: float(np.mean(w[i])), hi.cluster.to_numpy(), n_boot=1500)
+    print(f"  {label:<26}" + "".join(f"{x:>+7.1%}" for x in out))
+    print(f"  {'':<26}top two deciles {r:>+6.1%} [{l:>+6.1%},{h:>+6.1%}]  "
+          f"bottom two {lo.units.mean():>+6.1%}   spread {r-lo.units.mean():>+6.1%}")
+print(f"  {'signal':<26}" + "".join(f"{'d'+str(i+1):>7}" for i in range(10)))
+for col,label in (("win_prob","win probability"),
+                  ("expected_value","expected value"),
+                  ("edge","edge over break-even"),
+                  ("gap_rel","gap relative to line"),
+                  ("breakeven","the price (short to long)")):
+    deciles(col,label)
+
+
+# The tiers as shipped, because the deciles above are a research ranking and the
+# board does not bet deciles. Season to date the ordering is not monotone --
+# elite +15.2%, medium +4.7%, strong -1.9% -- and strong is the only tier under
+# break-even. That is 227 live picks saying a boundary is in the wrong place.
+if "edge_tier" in d.columns and d.edge_tier.notna().any():
+    print()
+    print(f"  {'tier':<12}{'picks':>7}{'hit':>8}{'ROI':>9}{'units':>9}  95% CI on ROI")
+    for tier in ("elite", "strong", "medium", "small"):
+        s_ = d[d.edge_tier == tier]
+        if len(s_) < 30:
+            continue
+        w = s_.units.to_numpy()
+        r, lo_, hi_ = S.clustered_bootstrap(
+            lambda i, w=w: float(np.mean(w[i])), s_.cluster.to_numpy(), n_boot=1500)
+        print(f"  {tier:<12}{len(s_):>7}{s_.hit.mean():>8.1%}{r:>+9.1%}"
+              f"{w.sum():>+9.2f}  [{lo_:>+6.1%}, {hi_:>+6.1%}]")

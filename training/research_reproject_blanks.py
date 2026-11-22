@@ -55,6 +55,7 @@ Read-only. A few minutes.
 from __future__ import annotations
 
 import os
+import pathlib
 
 import numpy as np
 import pandas as pd
@@ -72,6 +73,13 @@ MARKETS = [m.strip() for m in os.getenv("MARKETS", "recs").split(",") if m.strip
 SEASONS = [int(s) for s in os.getenv("SEASONS", "2025,2026").split(",")]
 QUANTILES = tq.QUANTILES
 ARMS = ("without", "with")
+CACHE = pathlib.Path(os.getenv("LAB_CACHE", "/lab/.cache"))
+
+
+def cached_arms(code):
+    """The projections from the last run of this file, or None."""
+    f = CACHE / f"reproject_{code}.pkl"
+    return pd.read_pickle(f) if f.exists() else None
 
 
 def blank_games():
@@ -244,6 +252,10 @@ def main():
             print(f"  fitting '{a}' ...")
             arms[a] = priced(project(d, fam, keep), lines, code)
             print(f"  '{a}': {len(arms[a]):,} priced props projected")
+        # Kept, so a question about these same projections does not cost
+        # another twenty minutes of fitting.
+        CACHE.mkdir(parents=True, exist_ok=True)
+        pd.to_pickle(arms, CACHE / f"reproject_{code}.pkl")
         for season in [None] + SEASONS:
             report(code, arms, season)
     print("\nEach bet cell: picks, how often right, what the price needed, "

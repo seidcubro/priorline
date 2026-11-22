@@ -1,0 +1,3 @@
+# Projections kept between runs of the slow scripts.
+.cache/
+__pycache__/

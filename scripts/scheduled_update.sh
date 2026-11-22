@@ -634,6 +634,7 @@ docker build -q -f jobs/ingestion/Dockerfile -t priorline-ingest . >/dev/null
 docker run --rm --network "$INGEST_NETWORK" \
   -e DATABASE_URL="$INGEST_DATABASE_URL" \
   -e SEASON_START="$SEASON_START" -e SEASON_END="$SEASON_END" \
+  -e BLANK_GAMES="${BLANK_GAMES:-0}" \
   $ONLY_ARG priorline-ingest
 
 if [ "$NEED_FEATURES" = "1" ]; then

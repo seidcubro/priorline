@@ -1756,6 +1756,81 @@ def sync_targets_from_pbp():
         conn.execute(text("TRUNCATE TABLE player_game_stats_app"))
         conn.execute(text("INSERT INTO player_game_stats_app SELECT * FROM player_game_stats"))
         print("  sync_targets_from_pbp: refreshed player_game_stats_app")
+        add_blank_games(conn)
+
+
+# Positions whose games the models and the record are built from.
+BLANK_GAME_POSITIONS = ("QB", "RB", "WR", "TE", "FB")
+
+
+def add_blank_games(conn):
+    """Write the games a player was on the field for and recorded nothing in.
+
+    The box score has a row for a player only when something happened to him.
+    A tight end who plays 38 snaps and is never thrown to has no row at all,
+    so as far as everything downstream can tell he did not play. That is one
+    skill-position player-game in eight every season, one in four for tight
+    ends, and one in eight of the games of the tight ends the books price
+    (diagnose_zero_games.py).
+
+    Everything is built from this table, so everything inherited the hole:
+
+        the label     a game with no row is not a training row, so the models
+                      learn what a player does on the days he does something
+        the window    his last five games skip the blank ones, so his form is
+                      the form of his good days
+        snap share    already a feature, and blind in exactly these games,
+                      because it is read off the rows that exist
+        the record    a pick on him could not be graded, which is how a losing
+                      over on Van Jefferson went missing
+
+    The snap counts know he played. So a row is written for every game where
+    he took a snap on offense and the box score has nothing, with zeros in the
+    columns a prop settles on. Zero is the truth there, not a guess: no
+    target, no catch, no carry, no attempt. Everything else stays NULL.
+
+    Only the app copy is touched. player_game_stats stays exactly what the
+    feed sent. It runs inside the refresh, so the rows are rebuilt from
+    scratch on every ingest and a stat line that turns up late simply takes
+    the place of the zero.
+
+    Off unless BLANK_GAMES=1, because it changes what every window and every
+    label is made of: turn it on ahead of a retrain, not between one and the
+    board it feeds.
+    """
+    if os.getenv("BLANK_GAMES", "0") != "1":
+        print("  add_blank_games: off (BLANK_GAMES is not 1)")
+        return
+    added = conn.execute(text("""
+        INSERT INTO player_game_stats_app (
+            player_id, game_id, season, week, season_type, game_date,
+            opponent, team, position,
+            targets, receptions, receiving_yards, receiving_tds,
+            carries, rushing_yards, rushing_tds,
+            attempts, completions, passing_yards, passing_tds
+        )
+        SELECT sc.player_id, sc.game_id, g.season, g.week,
+               CASE WHEN g.game_type = 'REG' THEN 'REG' ELSE 'POST' END,
+               g.game_date,
+               CASE WHEN sc.team = g.home_team THEN g.away_team
+                    WHEN sc.team = g.away_team THEN g.home_team
+                    ELSE sc.opponent END,
+               sc.team, sc.position,
+               0, 0, 0, 0,
+               0, 0, 0,
+               0, 0, 0, 0
+        FROM snap_counts sc
+        JOIN nfl_games g ON g.game_id = sc.game_id
+        WHERE sc.offense_snaps > 0
+          AND sc.player_id IS NOT NULL
+          AND sc.position = ANY(:positions)
+          AND g.game_date IS NOT NULL
+          AND NOT EXISTS (
+                SELECT 1 FROM player_game_stats p
+                WHERE p.player_id = sc.player_id AND p.game_id = sc.game_id)
+    """), {"positions": list(BLANK_GAME_POSITIONS)})
+    print(f"  add_blank_games: wrote {added.rowcount} game(s) where a player "
+          f"took a snap on offense and the box score has no row")
 
 
 def ingest_ff_opportunity(seasons: Iterable[int]):

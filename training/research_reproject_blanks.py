@@ -225,8 +225,8 @@ def main():
         is_blank = np.array([(p, g) in blanks for p, g in
                              zip(d["player_id"], d["as_of_game_date"])])
         fam = bt.FAMILY.get(code, "vote_v1")
-        print(f"{code}: {len(d):,} labelled rows, {int(is_blank.sum()):,} of "
-              f"them blank games "
+        print(f"{code}: lookback {d.attrs.get('lookback')}, {len(d):,} "
+              f"labelled rows, {int(is_blank.sum()):,} of them blank games "
               f"({int((is_blank & (d['season'] < max(SEASONS))).sum()):,} "
               f"before {max(SEASONS)}). Family {fam}.")
         if not is_blank.any():

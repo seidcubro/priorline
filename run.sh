@@ -14,5 +14,6 @@ log="/var/log/priorline/lab-$name.log"
 docker compose -f deploy/docker-compose.prod.yml build -q training
 nohup docker compose -f deploy/docker-compose.prod.yml run --rm -T \
   -v /opt/priorline/lab/training:/lab -e PYTHONPATH=/app \
+  ${MARKETS:+-e MARKETS=$MARKETS} ${SEASONS:+-e SEASONS=$SEASONS} \
   training python -u "/lab/$1" > "$log" 2>&1 &
 echo "started. Watch it with:  tail -f $log"

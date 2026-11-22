@@ -71,6 +71,18 @@ def features(code):
         m = cur.fetchone()
         if not m:
             return None
+        # The window the live model for this market was trained on, not a
+        # fixed one. This read lookback 5 for months after the pipeline moved
+        # to 8, so every backtest built on it was measuring a generation of
+        # feature rows that nothing trains on or serves from any more, and
+        # that the feature build no longer writes. Found when the blank games
+        # written on 22 November 2026 showed up in 59 of these rows where the
+        # live rows held thousands.
+        cur.execute("SELECT lookback FROM active_models WHERE market_id=%s",
+                    (m["id"],))
+        live = cur.fetchone()
+        lookback = int(os.getenv("BACKTEST_LOOKBACK")
+                       or (live or {}).get("lookback") or 5)
         cur.execute("""
             SELECT pmf.player_id, p.name, p.position, pmf.as_of_game_date,
                    pmf.opponent, pmf.team, pmf.mean, pmf.stddev,
@@ -78,10 +90,10 @@ def features(code):
                    pmf.extra_features, pmf.label_actual
             FROM player_market_features pmf
             JOIN players p ON p.external_id = pmf.player_id
-            WHERE pmf.market_id=%s AND pmf.lookback=5
+            WHERE pmf.market_id=%s AND pmf.lookback=%s
               AND pmf.label_actual IS NOT NULL
             ORDER BY pmf.as_of_game_date, pmf.player_id
-        """, (m["id"],))
+        """, (m["id"], lookback))
         rows = cur.fetchall()
     if not rows:
         return None
@@ -95,6 +107,7 @@ def features(code):
     # before it.
     yr = d["as_of_game_date"].dt.year
     d["season"] = np.where(d["as_of_game_date"].dt.month <= 2, yr - 1, yr)
+    d.attrs["lookback"] = lookback
     return d
 
 

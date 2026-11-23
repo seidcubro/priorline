@@ -135,7 +135,7 @@ def record_line(r, brief=False):
     out = (f"Elite picks this season were right {r['hit'] * 100:.1f}% of the "
            f"time, on {r['picks']:,} picks tiered by the rule the board uses "
            f"today. Their prices needed {r['needed'] * 100:.1f}%.")
-    if r["lo"] <= 0:
+    if r["lo"] <= 0 < r["margin"]:
         out += " On this many picks a lead that size could still be luck."
     return out
 
@@ -321,6 +321,24 @@ def said(p):
             f"{len(p['form'])} games")
 
 
+def before(p):
+    """What he did before the run the pick goes against, in one line."""
+    run = against(p)
+    rest = p["form"][len(run):]
+    if len(run) < 3 or len(rest) < 4:
+        return ""
+    hit = sum(1 for v in rest if on_side(p, v))
+    return (f"Before his last {COUNT[len(run)].lower()}: {p['side']} in "
+            f"{hit} of {len(rest)}.")
+
+
+def run_words(p):
+    """'11, 10 and 11 catches in his last three games', oldest first."""
+    run = [num(v) for v in reversed(against(p)[:3])]
+    return (f"{', '.join(run[:-1])} and {run[-1]} {UNIT[p['market_code']]} "
+            f"in his last {COUNT[len(run)].lower()} games")
+
+
 def names(p):
     parts = p["player_name"].split(" ", 1)
     return (parts[0], parts[1]) if len(parts) == 2 else ("", parts[0])
@@ -362,12 +380,83 @@ def pick_slide(path, p):
         strip(c, pad + 14, y, inner - 28, min(room, 200), p, green,
               bb.mix(bb.PAPER, bb.INK_DIM, 0.75), ink, dim, bb.rgb(bb.PAPER))
         c.text(pad, y + min(room, 200) + 56, said(p), bb.SANS_BOLD, 29, ink)
+        if before(p):
+            c.text(pad, y + min(room, 200) + 100, before(p), bb.SANS, 27, dim)
     bb.footer(c, pad, bb.INK, dim, size=22)
+    c.save(path)
+
+
+def against(p):
+    """His most recent games in a row that landed on the other side of the line.
+
+    Newest first, as the form is. Three or more is a run a reader already
+    knows about, and a pick against it is the one worth opening on.
+    """
+    run = []
+    for v in p["form"]:
+        if on_side(p, v) or v == p["line"]:
+            break
+        run.append(v)
+    return run
+
+
+def cover_against(path, label, hook, more, run):
+    """The cover for a pick that goes against what he has just done.
+
+    His last three games are set as large as the slide allows, then the pick
+    under them. Nothing is argued: the numbers and the call disagree, and the
+    reason to swipe is to see why.
+    """
+    w, h = 1080, 1350
+    c = bb.cloth(w, h)
+    gold, cream = bb.rgb(bb.GOLD), bb.rgb(bb.CREAM)
+    dim = bb.mix(bb.CLOTH, bb.CREAM, 0.62)
+    c.frame(40, 40, w - 80, h - 80, bb.mix(bb.CLOTH, bb.GOLD, 0.34), t=1.5)
+    pad = 108
+    inner = w - pad * 2
+    bb.lockup(c, pad, pad + 12, 76, gold)
+    y = 286
+    c.text(pad, y, label, bb.CAPS, 23, gold, track=0.14)
+    y += 80
+    c.text(pad, y, hook["player_name"], bb.ITALIC, 60, cream)
+    y += 34
+    shown = [num(v) for v in reversed(run[:3])]
+    gap = 54
+    size = 250
+    width = lambda sz: sum(c.width(n, bb.SERIF_BLACK, sz) for n in shown) + gap * (len(shown) - 1)
+    if width(size) > inner:
+        size = size * (inner - gap * (len(shown) - 1)) / (width(size) - gap * (len(shown) - 1))
+    y += size * 0.86
+    x = pad - 6
+    for n in shown:
+        c.text(x, y, n, bb.SERIF_BLACK, size, gold)
+        x += c.width(n, bb.SERIF_BLACK, size) + gap
+    y += 66
+    c.text(pad, y, f"{UNIT[hook['market_code']]} in his last "
+           f"{COUNT[len(shown)].lower()} games.", bb.SANS, 36, cream)
+    y += 104
+    c.text(pad, y, "I still say", bb.ITALIC, 54, dim)
+    line = f"{call(hook)}."
+    ls = fit(c, line, bb.SERIF_BLACK, 150, inner)
+    y += ls * 0.98
+    c.text(pad - 4, y, line, bb.SERIF_BLACK, ls, cream)
+    c.double_rule(pad, y + ls * 0.16, c.width(line, bb.SERIF_BLACK, ls), gold,
+                  heavy=5, gap=5, light=2)
+    y = h - pad - 150
+    c.text(pad, y, "SEE WHY", bb.CAPS, 24, gold, track=0.16)
+    sw = c.width("SEE WHY", bb.CAPS, 24, 0.16)
+    arrow(c, pad + sw + 26, y - 9, 150, gold)
+    if more:
+        c.text(w - pad, y, more[0], bb.SANS, 28, dim, align="r")
+    bb.footer(c, pad, gold, dim, size=22)
     c.save(path)
 
 
 def cover(path, label, hook, more, swipe=True):
     """The first slide: the brand, one name, one pick. Cloth and gold."""
+    run = against(hook)
+    if swipe and len(run) >= 3:
+        return cover_against(path, label, hook, more, run)
     w, h = 1080, 1350
     c = bb.cloth(w, h)
     gold, cream = bb.rgb(bb.GOLD), bb.rgb(bb.CREAM)
@@ -410,7 +499,9 @@ def trust_slide(path, r):
     ink, dim, green = bb.rgb(bb.INK), bb.rgb(bb.INK_DIM), bb.rgb(bb.GREEN)
     y = bb.head(c, pad, "Why trust these", "The elite tier, this season", 62)
     y += 236
-    c.text(pad - 8, y, f"{r['hit'] * 100:.1f}%", bb.SERIF_BLACK, 216, green)
+    # Green is for a tier that is ahead of its price, and only then.
+    c.text(pad - 8, y, f"{r['hit'] * 100:.1f}%", bb.SERIF_BLACK, 216,
+           green if r["margin"] > 0 else ink)
     y += 84
     c.text(pad, y, "right.", bb.SERIF, 64, ink)
     y += 76
@@ -419,7 +510,7 @@ def trust_slide(path, r):
     y += 70
     note = (f"{r['picks']:,} elite picks, weeks {r['week_first']} to "
             f"{r['week_last']}, tiered by the rule the board uses today.")
-    if r["lo"] <= 0:
+    if r["lo"] <= 0 < r["margin"]:
         note += " On this many picks a lead that size could still be luck."
     y = c.wrap(pad, y, note, bb.SANS, 27, ink, inner, lead=1.5)
     y += 8
@@ -444,7 +535,13 @@ def x_card(path, label, hook, others, r):
     bb.lockup(c, pad, pad - 6, 60, gold)
     first, last = names(hook)
     y = 300
-    c.text(pad, y, label, bb.CAPS, 21, gold, track=0.14)
+    if len(against(hook)) >= 3:
+        # The run he is on, then the pick against it.
+        c.text(pad, y - 52, label, bb.CAPS, 19, dim, track=0.14)
+        said_ = run_words(hook)[0].upper() + run_words(hook)[1:] + ". I still say:"
+        c.text(pad, y, said_, bb.SANS_BOLD, fit(c, said_, bb.SANS_BOLD, 30, left), cream)
+    else:
+        c.text(pad, y, label, bb.CAPS, 21, gold, track=0.14)
     y += 70
     c.text(pad, y, first, bb.ITALIC, 46, cream)
     size = fit(c, last, bb.SERIF_BLACK, 132, left)
@@ -605,7 +702,60 @@ def write_caption(out, x, ig):
         f"X\n-\n{x}\n\n\nINSTAGRAM\n---------\n{ig}\n", encoding="utf-8")
 
 
+def write_run_captions(out, lead, picks, r, tag):
+    """Captions for a card that opens on a pick against a run.
+
+    The first line is the run and the call, because that line is all either
+    network shows before a tap. On X the address goes in a reply: a post that
+    sends people off the site is shown to fewer of them.
+    """
+    hook, rest = picks[0], picks[1:]
+    away = hook["game"].split(" at ")[0]
+    teams = " ".join("#" + t for t in hook["game"].split(" at "))
+    where = lead.rstrip(".")
+    where = re.sub(r"(sun|mon|tues|wednes|thurs|fri|satur)day",
+                   lambda m: m.group(0).capitalize(), where)
+    open_ = (f"{hook['player_name']}: {run_words(hook)}.\n\n"
+             f"I still say {call(hook).lower()} {UNIT[hook['market_code']]}.")
+    more = (f"{COUNT[len(rest)]} more pick{'s' if len(rest) > 1 else ''} on "
+            f"the card. " if rest else "")
+    other = "over" if hook["side"] == "under" else "under"
+    x = "\n".join([
+        open_, "",
+        f"{where}. {more}Every one gets graded in public, win or lose.", "",
+        f"{hook['side'].capitalize()} or {other}?", "",
+        f"{tag} #{away}".strip()])
+    reply = "\n".join([
+        f"His last ten games, the other {COUNT[len(rest)].lower()} picks and "
+        f"the whole graded record: priorline.io", "", LEGAL])
+    lines = [f"{p['player_name']}: {call(p).lower()} {UNIT[p['market_code']]} "
+             f"({price(p['price'])}). {said(p)}." for p in picks]
+    why = " ".join(w for w in (
+        f"{where}.", before(hook),
+        f"My number for him is {hook['prior']:.1f}, the book's is "
+        f"{num(hook['line'])}.") if w)
+    ig = "\n".join([
+        open_, "", why, "",
+        "Bars are his last ten games. Solid ones landed on my side of the "
+        "line, outlined ones did not. Nothing is left out.", "",
+        *lines, "", record_line(r), "",
+        f"Graded in public on Tuesday, win or lose. Send this to the {away} "
+        f"fan who will disagree.", "",
+        "Full board and the whole record at priorline.io (link in bio).", "",
+        LEGAL, "", f"{tag} {teams} #NFLProps #PlayerProps".strip(),
+    ])
+    if len(x) > 280:
+        print(f"  the X caption is {len(x)} characters, over the 280 limit: trim it")
+    bar = "-" * 30
+    (out / "caption.txt").write_text("\n".join([
+        "X", "-", x, "", "",
+        "X, AS A REPLY TO YOUR OWN POST", bar, reply, "", "",
+        "INSTAGRAM", "---------", ig, ""]), encoding="utf-8")
+
+
 def pregame_captions(out, lead, picks, r, tag):
+    if len(against(picks[0])) >= 3:
+        return write_run_captions(out, lead, picks, r, tag)
     brief = [f"{p['player_name']} {call(p).lower()} {TIGHT[p['market_code']]}"
              for p in picks]
     kind = "Elite" if all(p["tier"] == "elite" for p in picks) else "Top"

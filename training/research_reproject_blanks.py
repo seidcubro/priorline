@@ -106,7 +106,7 @@ def project(d, family, keep):
     for s in SEASONS:
         past = d[(d["season"] < s) & keep]
         now = d.index[d["season"] == s]
-        if len(past) < 2000 or not len(now):
+        if len(past) < d.attrs.get("min_past", 2000) or not len(now):
             print(f"    {s}: skipped, {len(past)} rows to train on")
             continue
         X_tr, cols = tr._build_feature_dataframe(past.copy())
@@ -227,9 +227,14 @@ def main():
                          "there is nothing to compare")
     for code in MARKETS:
         d = bt.features(code)
-        if d is None or len(d) < 3000:
+        # A passing market has one quarterback a team a week, so a tenth of
+        # the rows a receiving market has. The bars that keep a thin receiving
+        # fit out would keep every passing market out.
+        thin = code.startswith("pass")
+        if d is None or len(d) < (800 if thin else 3000):
             print(f"{code}: too few labelled rows")
             continue
+        d.attrs["min_past"] = 600 if thin else 2000
         is_blank = np.array([(p, g) in blanks for p, g in
                              zip(d["player_id"], d["as_of_game_date"])])
         fam = bt.FAMILY.get(code, "vote_v1")
@@ -237,21 +242,25 @@ def main():
               f"labelled rows, {int(is_blank.sum()):,} of them blank games "
               f"({int((is_blank & (d['season'] < max(SEASONS))).sum()):,} "
               f"before {max(SEASONS)}). Family {fam}.")
-        if not is_blank.any():
-            print(f"{code}: no blank game reached the feature store, so the "
-                  f"two arms would be the same model. Nothing to test until "
-                  f"the features carry them.")
-            continue
         lines = bt.lines(code)
         if lines.empty:
             print(f"{code}: no priced lines")
             continue
         arms = {}
-        for a in ARMS:
-            keep = pd.Series(~is_blank if a == "without" else True, index=d.index)
-            print(f"  fitting '{a}' ...")
-            arms[a] = priced(project(d, fam, keep), lines, code)
-            print(f"  '{a}': {len(arms[a]):,} priced props projected")
+        if not is_blank.any():
+            # Nothing to compare, but the projections are still worth keeping:
+            # every later test reads them. One fit, the same under both names.
+            print(f"{code}: no blank games in this market, so the two arms "
+                  f"are one model. Fitting it once.")
+            one = priced(project(d, fam, pd.Series(True, index=d.index)), lines, code)
+            arms = {a: one for a in ARMS}
+            print(f"  {len(one):,} priced props projected")
+        else:
+            for a in ARMS:
+                keep = pd.Series(~is_blank if a == "without" else True, index=d.index)
+                print(f"  fitting '{a}' ...")
+                arms[a] = priced(project(d, fam, keep), lines, code)
+                print(f"  '{a}': {len(arms[a]):,} priced props projected")
         # Kept, so a question about these same projections does not cost
         # another twenty minutes of fitting.
         CACHE.mkdir(parents=True, exist_ok=True)

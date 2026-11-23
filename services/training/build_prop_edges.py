@@ -166,6 +166,52 @@ EVEN_FLOOR = float(os.getenv("EVEN_FLOOR", "0.45"))
 # The ones it was measured on and held in. See where the side is chosen.
 SIDE_FROM_CHANCE = frozenset({"recs", "rec_yds", "rush_yds", "rush_att"})
 
+# The markets where a pick is only ranked if the line agrees with it about the
+# player's recent games. See form_agrees().
+FORM_GATED = frozenset({"pass_yds"})
+
+
+def form_agrees(median_value, line_value, window_mean):
+    """Does the line sit on the same side of his recent games as we sit of the line?
+
+    A quarterback's passing yards line is not set at what he has been doing. The
+    book moves it off his recent games for the opponent, for who is back, for
+    what the game should look like, and measured on 1,125 priced props over
+    2024 to 2026 it does not move it far enough: the line as a share of his
+    window average was the one number out of 66 in the feature store that
+    separated the overs from the unders in all three seasons (0.565, 0.519,
+    0.567), and 2024 was bought after the idea was written down.
+
+    It is not strong enough to pick the side. Taking the side from it alone was
+    right 53.0% of the time against the model's 52.1%, and where the two
+    disagreed it was a coin, 51.2% on 598, and lost 2024. What it does is say
+    which of our picks to believe:
+
+        the line is on our side of his window     494 props   56.1% right
+                                                   (61.6%, 52.1%, 55.7% by season)
+        it is on the other side                    598 props   about 50%
+
+    against the 54.5% the top fifth of the gap had been getting on 222. So a
+    passing yards pick is ranked only when the two agree: we say over and the
+    book has the line above his average, or we say under and it has it below.
+    The rest are published as they were, as small, and marked.
+
+    Nothing about the pick or the number changes. A window with no average to
+    compare against cannot agree with anything, and is not ranked either.
+
+    I looked at four or five cuts of this before settling on agreement, so it
+    is partly the best-looking of several, and 2025 on its own was 52.1%. It is
+    to be measured again as the season adds props. See research_pass_form.py on
+    the lab branch.
+    """
+    try:
+        w = float(window_mean)
+    except (TypeError, ValueError):
+        return False
+    if not math.isfinite(w) or w <= 0 or line_value == w:
+        return False
+    return (median_value > line_value) == (line_value > w)
+
 # Which tiers the site offers as a bet, as opposed to shows as context.
 #
 # Mirrors BET_TIERS in services/api/app/routes/edges.py and reads the same
@@ -2527,6 +2573,14 @@ def main():
         if against_number:
             tier = "small"
 
+        # A passing yards pick the line does not back up about his recent
+        # games is published, small, and kept out of the ranking.
+        off_form = (market_code in FORM_GATED
+                    and not form_agrees(median_value, line_value,
+                                        frow.get("mean")))
+        if off_form:
+            tier = "small"
+
         # A bet the price already covers is not an edge, so it is not shown.
         if tier == "none":
             skip("the price already covers the edge", o["player_name"], market_code)
@@ -2584,7 +2638,8 @@ def main():
             "source_last_update": o["source_last_update"],
             # Read by the ranking below and by the record.
             "notes": ("against_number" if against_number
-                      else "under_even" if under_even else None),
+                      else "under_even" if under_even
+                      else "off_form" if off_form else None),
             # Carried for refuse_contradicted_picks, dropped before the write.
             "_season_n": _num(extra.get("y_season_n")),
             "_season_mean": _num(extra.get("y_season_mean")),
@@ -2639,9 +2694,17 @@ def main():
                               flipped["market_code"].value_counts().items())
                   + f" ({int((flipped['recommended_side'] == 'under').sum())} "
                   f"under, {int((flipped['recommended_side'] == 'over').sum())} over)")
+        gated = out[out["notes"] == "off_form"]
+        for code in sorted(FORM_GATED):
+            n_all = int((out["market_code"] == code).sum())
+            if n_all:
+                n_off = int((gated["market_code"] == code).sum())
+                print(f"  {code}: {n_all - n_off} of {n_all} pick(s) have the "
+                      f"line on our side of his recent games and are ranked; "
+                      f"{n_off} do not and are published as small")
         if len(kept):
-            print(f"  {len(kept)} pick(s) at even or worse or against our "
-                  f"number published as small and not ranked: "
+            print(f"  {len(kept)} pick(s) marked (at even or worse, against "
+                  f"our number, or off form) published as small and not ranked: "
                   + ", ".join(f"{m} {n}" for m, n in
                               kept["market_code"].value_counts().items()))
         for code, idx in rankable.groupby("market_code").groups.items():

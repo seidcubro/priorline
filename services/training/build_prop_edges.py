@@ -162,6 +162,10 @@ SUPPRESSED_MARKETS = frozenset({"any_td"})
 # main() that reads it.
 EVEN_FLOOR = float(os.getenv("EVEN_FLOOR", "0.45"))
 
+# The markets where the corrected chance picks the side and not the median.
+# The ones it was measured on and held in. See where the side is chosen.
+SIDE_FROM_CHANCE = frozenset({"recs", "rec_yds", "rush_yds", "rush_att"})
+
 # Which tiers the site offers as a bet, as opposed to shows as context.
 #
 # Mirrors BET_TIERS in services/api/app/routes/edges.py and reads the same
@@ -2281,11 +2285,22 @@ def main():
         # These rows carry `against_number` in notes, take no place in the gap
         # ranking (the gap points the other way from the pick, and the tiers
         # were validated on rows where the two agree), and are published as
-        # small. The touchdown markets keep the median: their chance is a
-        # Poisson survival that no correction is applied to, and none of this
-        # was measured on them.
+        # small.
+        #
+        # Only in the four markets it was measured on. I shipped it for every
+        # market that is not a touchdown count and then measured passing yards,
+        # which I should have done in the other order: on the 101 props where
+        # the two disagreed there, the median was right 52.5% and the corrected
+        # side 47.5%. That is too few to call it worse, but it is no evidence
+        # it is better, and the reason it works elsewhere does not hold there.
+        # The four markets go over 44% to 48% of the time because their lines
+        # are set high; passing yards went over 51.3% on 674 props. Attempts
+        # and completions have a season of prices each and could not be
+        # measured at all. So passing keeps the median, as it had before, and
+        # so do the touchdown markets, whose chance is a Poisson survival that
+        # no correction is applied to.
         chance_over = prefer_over
-        if (market_code not in COUNT_MARKETS and math.isfinite(float(p_over))
+        if (market_code in SIDE_FROM_CHANCE and math.isfinite(float(p_over))
                 and float(p_over) != 0.5):
             chance_over = float(p_over) > 0.5
         against_number = (chance_over != prefer_over

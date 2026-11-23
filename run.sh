@@ -26,5 +26,5 @@ nohup sh -c 'docker compose -f deploy/docker-compose.prod.yml run --rm -T \
   echo "=== FINISHED ===" >> "$LAB_LOG"' > /dev/null 2>&1 &
 pid=$!
 # Follows the log and stops by itself when the run does.
-tail --pid="$pid" -n +1 -f "$log" | grep -v -e '^ Container ' -e 'dropping [0-9]* ' -e 'RuntimeWarning' -e 'return np.where'
+tail --pid="$pid" -n +1 -f "$log" | grep -v -e '^ Container ' -e 'dropping [0-9]* ' -e 'RuntimeWarning' -e 'return np.where' || true
 echo "=== DONE: $1 has finished. Everything above is the whole output. ==="

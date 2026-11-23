@@ -22,8 +22,11 @@ all of it), plus a few built here from the lines themselves:
 For each one, in each season separately: take a prop that went over and one
 that did not, and how often did the number rate the first one higher? 0.50
 means the line has it fully priced. A number is kept only if it leans the same
-way in both seasons and by at least 0.02 in each, which about one in 150
-would do by luck.
+way in every season and the seasons together put it 2.6 standard errors from a
+coin, which about one number in a hundred does by luck. The bar is in standard
+errors and not a fixed 0.02 because the markets are very different sizes: 0.02
+is a lot on 2,500 receiving props and nothing on 250 passing ones. A market
+priced in one season only cannot be tested this way and says so.
 
 Then, for the ones kept, the props cut into fifths by that number: how often
 the over came in, each season. That shows whether an end of it clears 55%.
@@ -48,7 +51,8 @@ from research_side_by_price import implied
 from research_who_sorts import sorts
 
 VOLUME = {"rec_yds": "recs", "rush_yds": "rush_att"}
-LEAN = 0.02
+Z_BAR = 2.6          # two-sided chance about 0.009
+MIN_SEASON = 200
 SKIP = {"line", "over", "under", "actual", "label_actual", "went_over", "hit",
         "needed", "price", "season", "top", "player_id"}
 
@@ -85,20 +89,25 @@ def widen(j, code):
 
 def scan(j):
     rows = []
-    seasons = [s for s in RB.SEASONS if (j["season"] == s).sum() >= 300]
+    seasons = [s for s in RB.SEASONS if (j["season"] == s).sum() >= MIN_SEASON]
     for c in j.columns:
         if c in SKIP or c.startswith("q") and c[1:].isdigit():
             continue
         x = pd.to_numeric(j[c], errors="coerce") if j[c].dtype != bool else j[c].astype(float)
         if x.notna().mean() < 0.6 or x.nunique() < 10:
             continue
-        a = []
+        a, z = [], []
         for s in seasons:
             m = (j["season"] == s) & x.notna()
-            a.append(sorts(x[m], j.loc[m, "went_over"]))
-        if any(not np.isfinite(v) for v in a):
+            w = j.loc[m, "went_over"].astype(bool)
+            v = sorts(x[m], w)
+            a.append(v)
+            n1, n0 = int(w.sum()), int((~w).sum())
+            se = np.sqrt((n1 + n0 + 1) / (12.0 * n1 * n0)) if n1 and n0 else np.nan
+            z.append((v - 0.5) / se)
+        if any(not np.isfinite(v) for v in a + z):
             continue
-        rows.append((c, int(x.notna().sum()), a))
+        rows.append((c, int(x.notna().sum()), a, float(np.sum(z) / np.sqrt(len(z)))))
     return rows, seasons
 
 
@@ -126,22 +135,33 @@ def main():
             continue
         j = widen(arms["with"], code)
         rows, seasons = scan(j)
+        if len(seasons) < 2:
+            print(f"\n{code.upper()}: {len(j):,} priced props, and only "
+                  f"{len(seasons)} season with {MIN_SEASON} or more of them. A "
+                  f"number has to hold in two seasons to mean anything, so "
+                  f"there is nothing to test here yet.")
+            continue
         kept = [r for r in rows
-                if all(v - 0.5 >= LEAN for v in r[2])
-                or all(0.5 - v >= LEAN for v in r[2])]
-        kept.sort(key=lambda r: -min(abs(v - 0.5) for v in r[2]))
+                if (all(v > 0.5 for v in r[2]) or all(v < 0.5 for v in r[2]))
+                and abs(r[3]) >= Z_BAR]
+        kept.sort(key=lambda r: -abs(r[3]))
         print(f"\n{code.upper()}: {len(j):,} priced props, over came in "
               f"{j['went_over'].mean():.1%}. {len(rows)} numbers looked at, "
-              f"{len(kept)} lean the same way by {LEAN} or more in every season "
-              f"(about {len(rows) / 150:.1f} would by luck).")
-        print(f"    {'number':<40}{'props':>7}" + "".join(f"{s:>9}" for s in seasons))
-        for c, n, a in kept[:25]:
-            print(f"    {c[:39]:<40}{n:>7}" + "".join(f"{v:>9.3f}" for v in a))
-        print("\n    for scale, the ones built here whether kept or not")
-        for c, n, a in rows:
-            if " " in c:
-                print(f"    {c[:39]:<40}{n:>7}" + "".join(f"{v:>9.3f}" for v in a))
-        for c, _, _ in kept[:8]:
+              f"{len(kept)} lean the same way in every season and stand "
+              f"{Z_BAR} standard errors from a coin (about "
+              f"{len(rows) * 0.009:.1f} would by luck).")
+        head = (f"    {'number':<40}{'props':>7}"
+                + "".join(f"{s:>9}" for s in seasons) + f"{'std errs':>10}")
+        print(head)
+        for c, n, a, z in kept[:25]:
+            print(f"    {c[:39]:<40}{n:>7}" + "".join(f"{v:>9.3f}" for v in a)
+                  + f"{z:>+10.1f}")
+        print("\n    the nearest misses, for scale")
+        near = sorted((r for r in rows if r not in kept), key=lambda r: -abs(r[3]))
+        for c, n, a, z in near[:12]:
+            print(f"    {c[:39]:<40}{n:>7}" + "".join(f"{v:>9.3f}" for v in a)
+                  + f"{z:>+10.1f}")
+        for c, _, _, _ in kept[:8]:
             fifths(j, c, seasons)
     print("\nAbove 0.50 means a higher number goes with the over, below means "
           "with the under.")

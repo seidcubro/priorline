@@ -2062,6 +2062,164 @@ def ingest_injuries(seasons: Iterable[int]):
     print(f"  ingest_injuries: {len(out)} rows")
 
 
+# Where today's status comes from when the weekly report is out of date.
+#
+# The public feed behind ESPN's injury page. It is not a documented API and it
+# is not ours, so everything about reading it assumes it can vanish: a failed
+# read, or a read that returns too little to be the league, changes nothing.
+GAME_DAY_FEED = os.getenv(
+    "GAME_DAY_FEED",
+    "https://site.api.espn.com/apis/site/v2/sports/football/nfl/injuries")
+# A ruling older than this is last week's news and the weekly report has it.
+GAME_DAY_MAX_AGE_DAYS = float(os.getenv("GAME_DAY_MAX_AGE_DAYS", "4"))
+# "Active" is only believed on the day it is said. On a Wednesday it means he
+# played last Sunday, which says nothing about this week's report.
+GAME_DAY_ACTIVE_HOURS = float(os.getenv("GAME_DAY_ACTIVE_HOURS", "30"))
+
+
+def ingest_game_day_status():
+    """Lay today's rulings over the weekly injury report.
+
+    The injuries table is nflverse's copy of the official Wednesday-to-Friday
+    report, and it is the least current thing on the board by Sunday morning.
+    The inactive list comes out ninety minutes before kickoff, a Questionable
+    player is ruled out or cleared on Saturday, and none of it reaches that
+    report. Until now the only things that caught it were a row typed by hand
+    into player_status_overrides and the book pulling the prop, which costs an
+    odds sync to notice.
+
+    This reads the live league-wide list and writes each recent ruling into
+    `injuries` as the player's newest row, which is the row every reader takes:
+    the board's own status check, the count of teammates out, the vacated
+    starting roles and the feature build. Nothing downstream changes, it just
+    stops being told Friday's news on Sunday.
+
+        Out, Doubtful, Questionable   written as they are
+        Injured Reserve               written as Out
+        Active                        written as a row with no status, which
+                                      clears whatever the report last said
+
+    It runs after ingest_injuries in the same pass, because that step rebuilds
+    the table from the report and would otherwise wipe these out. A person
+    still beats it: player_status_overrides is applied by the board builder on
+    top of this table.
+
+    Players are matched on ESPN's id through the crosswalk, and on full name
+    where that fails and the name belongs to one player only.
+    """
+    import json
+    import re
+    import urllib.request
+
+    try:
+        req = urllib.request.Request(
+            GAME_DAY_FEED, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=45) as r:
+            payload = json.loads(r.read().decode("utf-8"))
+    except Exception as e:  # the report stands, which is what it did before
+        print(f"  game-day status: feed not read ({type(e).__name__}: {e}); "
+              "the weekly report stands")
+        return
+
+    rows = []
+    for team in payload.get("injuries") or []:
+        for i in team.get("injuries") or []:
+            a = i.get("athlete") or {}
+            href = next((l.get("href") or "" for l in a.get("links") or []
+                         if "/id/" in (l.get("href") or "")), "")
+            m = re.search(r"/id/(\d+)", href)
+            rows.append({
+                "espn_id": m.group(1) if m else None,
+                "name": (a.get("displayName") or "").strip(),
+                "status": (i.get("status") or "").strip(),
+                "reported_at": i.get("date"),
+                "note": (i.get("shortComment") or "").strip()[:240],
+            })
+    if len(rows) < 100:
+        print(f"  game-day status: only {len(rows)} rows in the feed, which is "
+              "not the league; the weekly report stands")
+        return
+
+    d = pd.DataFrame(rows)
+    d["reported_at"] = pd.to_datetime(d["reported_at"], utc=True, errors="coerce")
+    now = pd.Timestamp.now(tz="UTC")
+    age_h = (now - d["reported_at"]).dt.total_seconds() / 3600.0
+    ruled = d["status"].isin(["Out", "Doubtful", "Questionable", "Injured Reserve"])
+    keep = ((ruled & (age_h <= GAME_DAY_MAX_AGE_DAYS * 24))
+            | ((d["status"] == "Active") & (age_h <= GAME_DAY_ACTIVE_HOURS)))
+    d = d[keep & d["reported_at"].notna()].copy()
+    print(f"  game-day status: {len(rows)} rows in the feed, {len(d)} recent "
+          f"enough to act on, newest {d['reported_at'].max() if len(d) else 'none'}")
+    if d.empty:
+        return
+
+    with _engine().begin() as conn:
+        xw = pd.read_sql(text(
+            "SELECT gsis_id, espn_id FROM player_id_crosswalk "
+            "WHERE espn_id IS NOT NULL AND gsis_id IS NOT NULL"), conn)
+        pl = pd.read_sql(text(
+            "SELECT external_id, name, team, position FROM players"), conn)
+        cur = conn.execute(text(
+            "SELECT season, max(week) FROM injuries "
+            "WHERE season = (SELECT max(season) FROM injuries) GROUP BY season"
+        )).fetchone()
+        if not cur:
+            print("  game-day status: no weekly report to lay it over yet")
+            return
+        season, week = int(cur[0]), int(cur[1])
+        # The report spells two teams differently from the roster file (LA
+        # and LAR, WAS and WSH). The readers group by the report's spelling,
+        # so a new row has to use it or the player counts for nobody.
+        spelt = {r[0] for r in conn.execute(text(
+            "SELECT DISTINCT team FROM injuries WHERE season = :s AND team IS NOT NULL"
+        ), {"s": season})}
+        alias = {"LAR": "LA", "LA": "LAR", "WSH": "WAS", "WAS": "WSH"}
+
+        def report_team(t):
+            if t in spelt or t is None:
+                return t
+            return alias[t] if alias.get(t) in spelt else t
+
+        by_espn = dict(zip(xw["espn_id"].astype(str), xw["gsis_id"]))
+        norm = lambda s: re.sub(r"[^a-z]", "", str(s).lower())
+        pl["key"] = pl["name"].map(norm)
+        once = pl.drop_duplicates("key", keep=False).set_index("key")["external_id"]
+        d["player_id"] = d["espn_id"].map(by_espn)
+        miss = d["player_id"].isna()
+        d.loc[miss, "player_id"] = d.loc[miss, "name"].map(norm).map(once)
+        lost = d[d["player_id"].isna()]
+        d = d[d["player_id"].notna()].sort_values("reported_at")
+        d = d.drop_duplicates("player_id", keep="last")
+        info = pl.drop_duplicates("external_id").set_index("external_id")
+
+        n = 0
+        for r in d.itertuples(index=False):
+            status = {"Injured Reserve": "Out", "Active": None}.get(r.status, r.status)
+            conn.execute(text("""
+                INSERT INTO injuries (player_id, season, week, team, position,
+                                      report_primary_injury, report_status)
+                VALUES (:pid, :season, :week, :team, :pos, :why, :status)
+                ON CONFLICT (player_id, season, week) DO UPDATE SET
+                    report_status = EXCLUDED.report_status,
+                    report_primary_injury = EXCLUDED.report_primary_injury,
+                    team = COALESCE(injuries.team, EXCLUDED.team),
+                    position = COALESCE(injuries.position, EXCLUDED.position)
+            """), {
+                "pid": r.player_id, "season": season, "week": week,
+                "team": report_team(info["team"].get(r.player_id)),
+                "pos": info["position"].get(r.player_id),
+                "why": f"live {r.reported_at:%Y-%m-%d %H:%MZ}: {r.status}",
+                "status": status,
+            })
+            n += 1
+    counts = d["status"].value_counts().to_dict()
+    print(f"  game-day status: {n} players written over week {week} of "
+          f"{season}: " + ", ".join(f"{k} {v}" for k, v in counts.items()))
+    if len(lost):
+        print(f"  game-day status: {len(lost)} not matched to a player and "
+              f"left alone, e.g. {', '.join(lost['name'].head(5))}")
+
+
 def build_crosswalk():
     """Build player_id_crosswalk from rosters_weekly."""
     with _engine().begin() as conn:
@@ -2139,7 +2297,10 @@ def run():
     if only:
         print(f"Partial ingestion: {', '.join(sorted(only))}")
         steps = {
-            "injuries": lambda: ingest_injuries(seasons),
+            # Both, in this order: the report is rebuilt from scratch and
+            # today's rulings are laid over it.
+            "injuries": lambda: (ingest_injuries(seasons),
+                                 ingest_game_day_status()),
             "depth_charts": lambda: ingest_depth_charts(seasons),
             "schedules": lambda: ingest_schedules(seasons),
             "players": lambda: (ingest_players(), sync_players_dimension()),
@@ -2200,6 +2361,7 @@ def run():
     _release_memory()
     print("--- injuries ---")
     ingest_injuries(seasons)
+    ingest_game_day_status()
 
     _release_memory()
     print("--- FTN charting (loads PBP internally) ---")

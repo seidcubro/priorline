@@ -16,8 +16,10 @@ reason is drawn instead of written: his last ten games as bars against the
 book's line, the ones on our side filled in. The window is always ten, so a
 pick his own games argue against shows it.
 
-There are no player photographs, team logos or league marks. That is a rule in
-the marketing plan and a legal one before that.
+A slide carries the player's photograph on his team's colour (post_art.py).
+The photograph is the league's headshot, the one the site shows, cut above the
+shield on the collar. There are still no team logos and no league marks.
+--no-photos draws everything without the photographs.
 
 Every build writes posted.json beside the images: exactly what was put out,
 at what line and price. The receipt grades that file and nothing else, so a
@@ -44,6 +46,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import build_brand as bb
+import post_art as art
 
 API = "https://api.priorline.io/api/v1"
 ET = ZoneInfo("America/New_York")
@@ -154,6 +157,8 @@ def as_pick(e, games):
         "event_id": e["event_id"],
         "game": f"{short(e['away_team'])} at {short(e['home_team'])}",
         "kickoff": t.isoformat(), "form": form,
+        "team": games[0].get("team") if games else None,
+        "headshot": e.get("headshot"),
         "last_played": str(games[0]["game_date"])[:10] if games else None,
         "last_week": games[0].get("week") if games else None,
         "last_season": games[0].get("season") if games else None,
@@ -690,6 +695,139 @@ def receipt_card(path, title, sub, picks, r, score):
     c.save(path)
 
 
+# ------------------------------------------------- the slides, centred
+
+
+def recent(p, n):
+    """His last n games, oldest first, and which landed on our side."""
+    vals = list(reversed(p["form"][:n]))
+    return [num(v) for v in vals], [on_side(p, v) for v in vals], vals
+
+
+def art_cover(path, label, hook, more):
+    """The first slide: the player, his team's colour, the call."""
+    w, h = 1080, 1350
+    team = hook.get("team")
+    accent = bb.rgb(art.colours(team)[1])
+    white = bb.rgb(art.WHITE)
+    dim = bb.mix(art.NIGHT, art.WHITE, 0.62)
+    c = art.ground(w, h, team)
+    art.brand(c, 46, white)
+    art.mid(c, 126, label, bb.CAPS, 20, white, track=0.16, room=w - 160)
+    art.place(c, art.headshot(hook.get("headshot")), w / 2, 156, 530)
+    art.mid(c, 722, hook["player_name"], bb.SERIF, 60, white, room=w - 200)
+    art.mid(c, 884, call(hook).upper(), bb.SERIF_BLACK, 172, accent, room=w - 150)
+    art.mid(c, 934, UNIT[hook["market_code"]].upper(), bb.CAPS, 28, white, track=0.32)
+    shown, hits, _ = recent(hook, 3)
+    if shown:
+        art.tiles(c, w / 2, 972, shown, hits, accent, size=88)
+        said_ = f"HIS LAST {COUNT[len(shown)].upper()} GAMES"
+        if len(against(hook)) >= 3:
+            said_ += f". I STILL SAY {hook['side'].upper()}."
+        art.mid(c, 1098, said_, bb.CAPS, 19, dim, track=0.16)
+    art.pill(c, w / 2, 1132, "SEE WHY" if len(against(hook)) >= 3 else "SWIPE",
+             accent, 22)
+    if more:
+        art.mid(c, 1226, more[0].upper(), bb.CAPS, 17, dim, track=0.16)
+    art.notice(c, dim)
+    c.save(path)
+
+
+def art_pick(path, p):
+    """One pick: the player, the call, and his last ten games as the reason."""
+    w, h = 1080, 1350
+    team = p.get("team")
+    accent = bb.rgb(art.colours(team)[1])
+    white = bb.rgb(art.WHITE)
+    dim = bb.mix(art.NIGHT, art.WHITE, 0.62)
+    c = art.ground(w, h, team, fall=0.58, glow=(0.5, 0.26))
+    t = dt.datetime.fromisoformat(p["kickoff"])
+    art.brand(c, 46, white)
+    art.mid(c, 126, f"{p['game'].upper()}    {clock(t)}", bb.CAPS, 20, white,
+            track=0.16, room=w - 160)
+    art.place(c, art.headshot(p.get("headshot")), w / 2, 156, 430)
+    art.mid(c, 632, p["player_name"], bb.SERIF, 54, white, room=w - 200)
+    art.mid(c, 774, call(p).upper(), bb.SERIF_BLACK, 150, accent, room=w - 150)
+    art.mid(c, 820, UNIT[p["market_code"]].upper(), bb.CAPS, 26, white, track=0.32)
+    cols = (("TIER", p["tier"].capitalize()), ("OUR PRIOR", f"{p['prior']:.1f}"),
+            ("THEIR LINE", f"{p['line']:.1f}"), ("PRICE", price(p["price"])))
+    step = 210
+    x = w / 2 - step * (len(cols) - 1) / 2
+    for lab, val in cols:
+        c.text(x, 884, lab, bb.CAPS, 16, dim, track=0.14, align="c")
+        c.text(x, 932, val, bb.SERIF, 40, white, align="c")
+        x += step
+    shown, hits, vals = recent(p, WINDOW)
+    if vals:
+        art.bars(c, w / 2, 984, 700, 150, vals, hits, p["line"], accent,
+                 f"LINE {num(p['line'])}")
+        art.mid(c, 1188, said(p), bb.SANS_BOLD, 28, white)
+        if before(p):
+            art.mid(c, 1226, before(p), bb.SANS, 23, dim)
+    art.notice(c, dim)
+    c.save(path)
+
+
+def art_trust(path, r):
+    """Why to believe any of it. Ours, so it is cloth and gold."""
+    w, h = 1080, 1350
+    c = bb.cloth(w, h)
+    gold, cream = bb.rgb(bb.GOLD), bb.rgb(bb.CREAM)
+    dim = bb.mix(bb.CLOTH, bb.CREAM, 0.62)
+    art.brand(c, 96, gold, 48)
+    art.mid(c, 250, "THE ELITE TIER, THIS SEASON", bb.CAPS, 22, gold, track=0.18)
+    ahead = r["margin"] > 0
+    art.mid(c, 520, f"{r['hit'] * 100:.1f}%", bb.SERIF_BLACK, 250,
+            gold if ahead else cream, room=w - 200)
+    art.mid(c, 606, "right.", bb.ITALIC, 56, cream)
+    art.mid(c, 676, f"Their prices needed {r['needed'] * 100:.1f}%.", bb.SANS, 34, dim)
+    c.double_rule(w / 2 - 110, 730, 220, gold, heavy=4, gap=4, light=1.5)
+    y = 838
+    for line in CHECKS:
+        art.mid(c, y, line, bb.SANS_BOLD, 36, cream)
+        y += 66
+    note = (f"{r['picks']:,} PICKS. WEEKS {r['week_first']} TO "
+            f"{r['week_last']}. TIERED BY TODAY'S RULE.")
+    art.mid(c, y + 34, note, bb.CAPS, 18, dim, track=0.14)
+    if r["lo"] <= 0 < r["margin"]:
+        art.mid(c, y + 70, "A LEAD THIS SIZE COULD STILL BE LUCK.", bb.CAPS, 18,
+                dim, track=0.14)
+    art.notice(c, dim)
+    c.save(path)
+
+
+def art_x(path, label, hook, others):
+    """One landscape image for X: the player on the left, the call on the right."""
+    w, h = 1600, 900
+    team = hook.get("team")
+    accent = bb.rgb(art.colours(team)[1])
+    white = bb.rgb(art.WHITE)
+    dim = bb.mix(art.NIGHT, art.WHITE, 0.62)
+    c = art.ground(w, h, team, fall=0.6, glow=(0.24, 0.42), across=True)
+    shot = art.headshot(hook.get("headshot"))
+    art.place(c, shot, 420, 110, 640, fade=0.3)
+    cx = 1090 if shot is not None else w / 2
+    art.brand(c, 70, white, 44, cx=cx)
+    art.mid(c, 176, label, bb.CAPS, 19, white, track=0.16, room=840, cx=cx)
+    art.mid(c, 290, hook["player_name"], bb.SERIF, 60, white, room=820, cx=cx)
+    art.mid(c, 476, call(hook).upper(), bb.SERIF_BLACK, 176, accent, room=820, cx=cx)
+    art.mid(c, 528, UNIT[hook["market_code"]].upper(), bb.CAPS, 28, white,
+            track=0.32, cx=cx)
+    shown, hits, _ = recent(hook, 3)
+    if shown:
+        art.tiles(c, cx, 572, shown, hits, accent, size=84)
+        said_ = f"HIS LAST {COUNT[len(shown)].upper()} GAMES"
+        if len(against(hook)) >= 3:
+            said_ += f". I STILL SAY {hook['side'].upper()}."
+        art.mid(c, 696, said_, bb.CAPS, 19, dim, track=0.16, cx=cx)
+    if others:
+        art.mid(c, 748, f"PLUS {COUNT[len(others)].upper()} MORE PICK"
+                f"{'S' if len(others) > 1 else ''} ON THE CARD", bb.CAPS, 19,
+                accent, track=0.16, cx=cx)
+    art.notice(c, dim)
+    c.save(path)
+
+
 # --------------------------------------------------------------- captions
 
 TAGS = "#NFL #PlayerProps #NFLProps #SportsAnalytics"
@@ -815,14 +953,14 @@ def pregame(api, rows, label, lead, folder, limit, tag, week):
             more.append(f"{rest[-1]['player_name']} is last.")
     n = 1
     if rest:
-        cover(out / f"ig-{n:02d}-cover.png", label, hook, more)
+        art_cover(out / f"ig-{n:02d}-cover.png", label, hook, more)
         n += 1
     for p in picks:
-        pick_slide(out / f"ig-{n:02d}-{slug(p['player_name'])}.png", p)
+        art_pick(out / f"ig-{n:02d}-{slug(p['player_name'])}.png", p)
         n += 1
     if r:
-        trust_slide(out / f"ig-{n:02d}-why-trust-these.png", r)
-    x_card(out / "x-card.png", label, hook, rest, r)
+        art_trust(out / f"ig-{n:02d}-why-trust-these.png", r)
+    art_x(out / "x-card.png", label, hook, rest)
     pregame_captions(out, lead, picks, r, tag)
     (out / "posted.json").write_text(json.dumps(
         {"built": dt.datetime.now(ET).isoformat(timespec="minutes"),
@@ -947,7 +1085,11 @@ def main():
                     "leaves out a morning game)")
     ap.add_argument("--max", type=int, default=5, help="picks on a carousel")
     ap.add_argument("--week", help="week number, if the guess is wrong")
+    ap.add_argument("--no-photos", action="store_true",
+                    help="draw the slides without the players' photographs")
     a = ap.parse_args()
+    if a.no_photos:
+        art.PHOTOS[0] = False
     if a.lead:
         LEAD.append(a.lead.strip().lower())
     if a.skip:

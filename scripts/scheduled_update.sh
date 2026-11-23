@@ -827,6 +827,14 @@ if [ "$FAST" = "0" ]; then
   $COMPOSE run --rm training python replay_current_rules.py \
     || log "replay failed, the site keeps the last stored figure"
 
+  # Each rule that moves a side or a rank, graded on the picks it has touched
+  # since it went live, beside the picks it left alone. The rules were chosen
+  # on backtests; this is where one that has stopped working shows up. It only
+  # prints, so a failure costs the report and nothing else.
+  log "grade the board's rules on live picks"
+  $COMPOSE run --rm training python eval_rules.py \
+    || log "rule report failed, nothing else depends on it"
+
   # Regenerate the figures the site states as fact, from the week just graded.
   #
   # Every run that grades, not the weekly alone.

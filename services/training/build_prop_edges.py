@@ -2244,7 +2244,53 @@ def main():
         # value is computed for the chosen side, and a side the price does not
         # justify falls below the tier cut and never appears.
         prefer_over = median_value > line_value
-        if only_over or (not only_under and prefer_over):
+
+        # Since 22 November 2026 the corrected chance decides the side, and the
+        # median only decides it where there is no corrected chance to read.
+        #
+        # The reasoning above held for as long as nobody had measured what it
+        # cost. Projected again walking forward over 2025 and 2026 in four
+        # markets, 11,665 priced props, the median and the chance corrected
+        # against results disagreed on 1,539 of them, and on those:
+        #
+        #                 props   median's side right   corrected side right
+        #     recs          421        47.0%                 53.0%
+        #     rec_yds       674        45.5%                 54.5%
+        #     rush_yds      221        48.0%                 52.0%
+        #     rush_att      223        46.6%                 53.4%
+        #     together     1539        46.4%                 53.6%
+        #
+        # The same direction in every market, and nearly all of them overs. The
+        # over comes in 46.3% of the time across those props and 47.7% where the
+        # median says over: the books set the line high, and thinking a little
+        # more of a player than the book does is not enough to clear that. The
+        # median ranks them correctly (the third furthest over the line came in
+        # 51.3%, the nearest third 44.6%) and has the level wrong, which is the
+        # thing the correction exists to fix. See research_calibrated_side.py
+        # and research_overs.py on the lab branch.
+        #
+        # The board was already saying so. It published these on the median's
+        # side at a corrected chance of 45% to 50%, marked them, and withheld
+        # the ones under 45% altogether, which were the clearest of them. A
+        # pick printed beside our own number saying it loses more often than it
+        # wins is the unreadable board; a number above the line beside UNDER is
+        # only unusual, and the row now says why in words.
+        #
+        # What does not change: the number shown is still ours, never moved to
+        # agree with the pick, which is the thing that put Jefferson at 2.49.
+        # These rows carry `against_number` in notes, take no place in the gap
+        # ranking (the gap points the other way from the pick, and the tiers
+        # were validated on rows where the two agree), and are published as
+        # small. The touchdown markets keep the median: their chance is a
+        # Poisson survival that no correction is applied to, and none of this
+        # was measured on them.
+        chance_over = prefer_over
+        if (market_code not in COUNT_MARKETS and math.isfinite(float(p_over))
+                and float(p_over) != 0.5):
+            chance_over = float(p_over) > 0.5
+        against_number = (chance_over != prefer_over
+                          and not only_over and not only_under)
+        if only_over or (not only_under and chance_over):
             recommended_side = "over"
             win_prob = float(p_over)
             win_prob_raw = p_over_raw
@@ -2301,8 +2347,8 @@ def main():
         # median and the probability, not the season offset tipping a close one.
         under_even = win_prob <= 0.5
         if under_even:
-            forced = ((only_over and not prefer_over)
-                      or (only_under and prefer_over))
+            forced = ((only_over and not chance_over)
+                      or (only_under and chance_over))
             if forced:
                 skip("only one side is priced and the model prefers the other",
                      o["player_name"], market_code)
@@ -2462,6 +2508,10 @@ def main():
                     if gap_tier.ENABLED else ev_tier)
 
 
+        # A pick against our own number is small whichever ranking is live.
+        if against_number:
+            tier = "small"
+
         # A bet the price already covers is not an edge, so it is not shown.
         if tier == "none":
             skip("the price already covers the edge", o["player_name"], market_code)
@@ -2518,7 +2568,8 @@ def main():
             "lookback": int(frow["lookback"]),
             "source_last_update": o["source_last_update"],
             # Read by the ranking below and by the record.
-            "notes": "under_even" if under_even else None,
+            "notes": ("against_number" if against_number
+                      else "under_even" if under_even else None),
             # Carried for refuse_contradicted_picks, dropped before the write.
             "_season_n": _num(extra.get("y_season_n")),
             "_season_mean": _num(extra.get("y_season_mean")),
@@ -2565,9 +2616,17 @@ def main():
         # ranking, so the tiers are cut over the same rows they always were.
         rankable = out[out["notes"].isna()]
         kept = out[out["notes"].notna()]
+        flipped = out[out["notes"] == "against_number"]
+        if len(flipped):
+            print(f"  {len(flipped)} pick(s) on the side the corrected chance "
+                  f"favours, against our own number: "
+                  + ", ".join(f"{m} {n}" for m, n in
+                              flipped["market_code"].value_counts().items())
+                  + f" ({int((flipped['recommended_side'] == 'under').sum())} "
+                  f"under, {int((flipped['recommended_side'] == 'over').sum())} over)")
         if len(kept):
-            print(f"  {len(kept)} pick(s) at even or worse published as small "
-                  f"and not ranked: "
+            print(f"  {len(kept)} pick(s) at even or worse or against our "
+                  f"number published as small and not ranked: "
                   + ", ".join(f"{m} {n}" for m, n in
                               kept["market_code"].value_counts().items()))
         for code, idx in rankable.groupby("market_code").groups.items():

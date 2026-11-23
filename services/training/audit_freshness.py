@@ -935,12 +935,28 @@ def check_board_internal_consistency(engine):
     All three now derive from the median, so this holds by construction. It is
     checked anyway, because it held by construction before too, in a different
     part of the code, and stopped.
+
+    One kind of row is allowed to break it, on purpose and in the open. Since 22
+    November 2026 the side comes from the chance corrected against results, and
+    where that sits on the other side of the line from our number the builder
+    publishes the corrected side, leaves the number alone and marks the row
+    `against_number` (see the note in build_prop_edges where the side is
+    chosen). So the rule here is no longer "the pick agrees with the number".
+    It is "the pick agrees with the number or the row says it does not", plus
+    the two things that keep the mark honest: a marked row really is against
+    its number, and it is never offered as a bet, because the tiers were
+    validated on rows where the two agree.
     """
     print("\n[11] Board rows are internally consistent")
-    df = pd.read_sql(text("""
+    has_notes = not pd.read_sql(text("""
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'prop_edges' AND column_name = 'notes'
+    """), engine).empty
+    notes_col = "notes" if has_notes else "NULL::text AS notes"
+    df = pd.read_sql(text(f"""
         SELECT player_name, market_code, line, projection_median, raw_edge,
                recommended_side, win_prob, expected_value, edge_tier,
-               price_american, negative_ev
+               price_american, negative_ev, {notes_col}
         FROM prop_edges
         WHERE projection_median IS NOT NULL
           -- Only what the site can actually serve.
@@ -962,10 +978,19 @@ def check_board_internal_consistency(engine):
     breakeven = (100.0 / (price + 100)).where(price > 0, -price / (-price + 100))
     from build_prop_edges import BET_TIERS
     is_bet = df["edge_tier"].isin(BET_TIERS)
+    marked = df["notes"].eq("against_number").fillna(False).astype(bool)
+    off_number = (df["projection_median"] > df["line"]) != over
+    if marked.any():
+        print(f"  {int(marked.sum())} pick(s) follow the corrected chance "
+              f"against our own number, and say so.")
     problems = {
-        "edge sign disagrees with the pick": (df["raw_edge"] > 0) != over,
-        "pick disagrees with the model number": (
-            df["projection_median"] > df["line"]) != over,
+        "edge sign disagrees with the pick and the row does not say so": (
+            ((df["raw_edge"] > 0) != over) & ~marked),
+        "pick disagrees with the model number and the row does not say so": (
+            off_number & ~marked),
+        "a pick marked as against our number agrees with it": (
+            marked & ~off_number),
+        "a pick against our number is offered as a bet": marked & is_bet,
         "edge is not the model number minus the line": (
             (df["raw_edge"] - (df["projection_median"] - df["line"])).abs() > 0.001),
         # Against break-even, not against a coin flip.

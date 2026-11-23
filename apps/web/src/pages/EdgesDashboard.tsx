@@ -21,7 +21,10 @@ import Pager from "../components/Pager";
 import PageTitle from "../components/PageTitle";
 import { fullDateTime, kickoff, price as fmtOdds } from "../lib/format";
 
-import { MARKET_ORDER, isTdCount, isYesNo, marketLabel, sideLabel } from "../lib/markets";
+import {
+  AGAINST_NUMBER_NOTE, MARKET_ORDER, againstNumber, isTdCount, isYesNo,
+  marketLabel, sideLabel,
+} from "../lib/markets";
 import {
   fetchEdges,
   fetchEdgesSummary,
@@ -745,9 +748,10 @@ export default function EdgesDashboard() {
                     This was signed toward whichever side was picked, so the
                     same 4.06 model against a 3.5 line printed +0.56 on an over
                     and -0.56 on an under, and the sign only repeated the Pick
-                    column while looking like it disagreed with it. The pick now
-                    follows the median too, so a positive edge is always an over
-                    and a negative one always an under.
+                    column while looking like it disagreed with it. It is now
+                    always our number minus the line. The pick usually sits on
+                    the same side; where the corrected chance puts it on the
+                    other, the Pick cell says "against our number".
                   */}
                   <td
                     data-label="Edge"
@@ -757,7 +761,9 @@ export default function EdgesDashboard() {
                     title={
                       isYesNo(e.market_code)
                         ? "A yes-or-no market has no number to clear, so everything is in the Chance and Value columns."
-                        : "The model's number minus the line. Positive means the model is above the line, which is why the pick is the over."
+                        : againstNumber(e.market_code, e.raw_edge, e.recommended_side)
+                          ? AGAINST_NUMBER_NOTE
+                          : "The model's number minus the line. Positive means the model is above the line."
                     }
                   >
                     {isYesNo(e.market_code) ? (
@@ -833,6 +839,11 @@ export default function EdgesDashboard() {
                     <span className={over ? "side-over" : "side-under"}>
                       {sideLabel(e.market_code, e.recommended_side)}
                     </span>
+                    {againstNumber(e.market_code, e.raw_edge, e.recommended_side) && (
+                      <div className="matchup" title={AGAINST_NUMBER_NOTE}>
+                        against our number
+                      </div>
+                    )}
                   </td>
                   <td data-label="Tier">
                     <span className={`tier tier-${e.edge_tier}`}>{e.edge_tier}</span>

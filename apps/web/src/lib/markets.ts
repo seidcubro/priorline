@@ -111,6 +111,32 @@ export function isTdCount(code: string): boolean {
 }
 
 /**
+ * A pick on the other side of the line from our own number.
+ *
+ * The side comes from the chance after it has been corrected against results,
+ * and the number shown is still the projection. They disagree on about one
+ * prop in eight, nearly always a number just above the line beside an under:
+ * books set lines high, and over two seasons a number a little above the line
+ * has not been enough to clear that. On 1,539 such props the corrected side
+ * was right 53.6% of the time and the number's side 46.4%.
+ *
+ * The number is never moved to agree with the pick. The row says so in words
+ * instead, and this is what decides whether it has to.
+ */
+export function againstNumber(
+  code: string, rawEdge: number, side: string | null,
+): boolean {
+  if (isYesNo(code) || isTdCount(code)) return false;
+  return (rawEdge > 0 && side === "under") || (rawEdge < 0 && side === "over");
+}
+
+export const AGAINST_NUMBER_NOTE =
+  "Our number is on the other side of the line from this pick. Lines are set "
+  + "high, and over the last two seasons, when our number and our corrected "
+  + "chance disagreed, the corrected chance was right about 54 times in 100. "
+  + "The pick follows the chance and the number is shown as it is.";
+
+/**
  * What to call the side of a bet.
  *
  * A yes-or-no market has no over and no under. The board rendered "OVER" on

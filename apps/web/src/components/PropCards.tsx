@@ -14,7 +14,9 @@
 import { useEffect, useState } from "react";
 import Sparkline from "./Sparkline";
 import { fetchEdges, fetchPlayerGames, type PropEdge, type PlayerGame } from "../api";
-import { isYesNo, marketLabel, sideLabel } from "../lib/markets";
+import {
+  AGAINST_NUMBER_NOTE, againstNumber, isYesNo, marketLabel, sideLabel,
+} from "../lib/markets";
 
 function fmtPrice(p: number | null): string {
   if (p === null || p === undefined) return "-";
@@ -198,6 +200,11 @@ export default function PropCards({
                   </span>{" "}
                   {top.bookmaker_title ?? top.bookmaker_key}{" "}
                   {fmtPrice(top.price_american)}
+                  {againstNumber(market, top.raw_edge, top.recommended_side) && (
+                    <span className="matchup" title={AGAINST_NUMBER_NOTE}>
+                      {" "}against our number
+                    </span>
+                  )}
                 </span>
                 {top.win_prob !== null && (
                   <span className="prob">

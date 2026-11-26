@@ -233,9 +233,15 @@ def eleven(line, voice, tmp, i):
     import base64
     import os
     import urllib.request
+    # The key is read from the environment, or from a file in the cache folder
+    # that git never sees. It is never written anywhere by this script.
     key = os.environ.get("ELEVENLABS_API_KEY")
+    kept = MODEL / "elevenlabs.key"
+    if not key and kept.exists():
+        key = kept.read_text(encoding="utf-8-sig").strip()
     if not key:
-        raise SystemExit("ELEVENLABS_API_KEY is not set, so there is no ElevenLabs voice")
+        raise SystemExit("no ElevenLabs key: set ELEVENLABS_API_KEY, or save the "
+                         f"key on one line in {kept}")
     body = json.dumps({"text": line, "model_id": "eleven_multilingual_v2",
                        "voice_settings": {"stability": 0.35, "similarity_boost": 0.8,
                                           "style": 0.55, "use_speaker_boost": True}})

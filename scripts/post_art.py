@@ -214,7 +214,7 @@ def pill(c, cx, y, text, accent, size=24):
 LEAVES = ("#e0a030", "#c8591c", "#cda64e", "#8f2f14", "#f0d9a0")
 
 
-def season(c, theme, low=0.50):
+def season(c, theme, low=0.50, top=150):
     """Dress a slide for the day. Thanksgiving is falling leaves in both top
     corners, mirrored on the centre line, and nothing over the player."""
     if theme != "thanksgiving":
@@ -228,8 +228,8 @@ def season(c, theme, low=0.50):
     d = ImageDraw.Draw(layer)
     for _ in range(26):
         x = rnd.uniform(18, c.w * 0.27)
-        y = rnd.uniform(150, c.h * low)
-        if x > c.w * 0.27 * (1 - (y - 150) / (c.h * low)) + 40:
+        y = rnd.uniform(top, c.h * low)
+        if x > c.w * 0.27 * (1 - (y - top) / (c.h * low)) + 40:
             continue
         size = rnd.uniform(16, 40)
         turn = rnd.uniform(0, math.pi)

@@ -9,7 +9,7 @@
  * collapses into stacked cards via CSS (data-label attributes).
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import NextSlate from "../components/NextSlate";
 import NextUpdate from "../components/NextUpdate";
@@ -699,10 +699,16 @@ export default function EdgesDashboard() {
               // row is a pick. The ledger above says which tiers those are;
               // this is the same statement at the level of the row.
               const isBet = betTiers.includes(e.edge_tier);
+              // The numbers under the pick. On a wide screen they get a line
+              // of their own across the whole table, under the row they belong
+              // to: inside the player column they wrapped to six short lines
+              // and made every row a paragraph. On a phone the row is already
+              // a card, and they sit in it under the player.
+              const says = why[`${e.player_name}|${e.market_code}`]?.says ?? [];
               return (
+                <Fragment key={e.id}>
                 <tr
-                  key={e.id}
-                  className={isBet ? "is-bet" : "is-context"}
+                  className={`${isBet ? "is-bet" : "is-context"}${says.length ? " has-why" : ""}`}
                 >
                   <td data-label="Player">
                     <div className="ps-ident">
@@ -722,10 +728,8 @@ export default function EdgesDashboard() {
                         <div className="ps-gamedate">{fmtGameDate(e)}</div>
                       </div>
                     </div>
-                    {why[`${e.player_name}|${e.market_code}`]?.says?.length ? (
-                      <p className="ps-why">
-                        {why[`${e.player_name}|${e.market_code}`].says.join(" ")}
-                      </p>
+                    {says.length ? (
+                      <p className="ps-why ps-why-inline">{says.join(" ")}</p>
                     ) : null}
                   </td>
                   <td data-label="Market">{marketLabel(e.market_code)}</td>
@@ -902,6 +906,14 @@ export default function EdgesDashboard() {
                     ))}
                   </td>
                 </tr>
+                {says.length ? (
+                  <tr className={`ps-whyrow ${isBet ? "is-bet" : "is-context"}`}>
+                    <td colSpan={10}>
+                      <p className="ps-why">{says.join(" ")}</p>
+                    </td>
+                  </tr>
+                ) : null}
+                </Fragment>
               );
             })}
           </tbody>

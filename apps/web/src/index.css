@@ -906,6 +906,30 @@ button:focus-visible, a:focus-visible, [role="option"]:focus-visible {
   white-space: normal;
   text-wrap: pretty;
 }
+
+/*
+ * On a wide screen the sentence has a row of its own under the pick, across
+ * the whole table and starting where the player's name starts, so it reads as
+ * one or two lines and the columns above it keep their rhythm. The pick's own
+ * row gives up its rule so the two read as one entry. Below the width where
+ * the table turns into cards the extra row goes and the copy inside the
+ * player's cell is shown instead.
+ */
+.ps-why-inline { display: none; }
+.ps-table tbody tr.has-why { border-bottom: 0; }
+.ps-table tbody tr.ps-whyrow:hover { background: transparent; }
+.ps-table tbody tr.ps-whyrow td {
+  padding-top: 0;
+  padding-bottom: 14px;
+  padding-left: 68px;
+  text-align: left;
+}
+.ps-whyrow .ps-why { margin: 0; max-width: 118ch; font-size: 0.82rem; }
+@media (max-width: 960px) {
+  .ps-table tbody tr.ps-whyrow { display: none; }
+  .ps-why-inline { display: block; }
+  .ps-table tbody tr.has-why { border-bottom: 1px solid var(--border); }
+}
 .ps-ident-name {
   font-size: 0.94rem;
   font-weight: 600;

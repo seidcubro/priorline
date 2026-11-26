@@ -879,6 +879,99 @@ def art_x(path, label, hook, others):
     c.save(path)
 
 
+LOSS = "#e5484d"      # the loss red, lifted so it reads on black
+
+
+def art_rows(c, x, y, w, picks, row, accent, scale=1.0):
+    """What was posted, one line a pick, with the verdict at the right."""
+    white = bb.rgb(art.WHITE)
+    dim = bb.mix(art.NIGHT, art.WHITE, 0.62)
+    hair = bb.mix(art.NIGHT, art.WHITE, 0.2)
+    for i, p in enumerate(picks):
+        base = y + row * 0.46
+        ns = fit(c, p["player_name"], bb.SERIF, 34 * scale, w * 0.62)
+        c.text(x, base, p["player_name"], bb.SERIF, ns, white)
+        got = ("No result yet" if p["actual"] is None
+               else f"Finished on {num(p['actual'])}")
+        if row >= 70:
+            c.text(x, base + 30 * scale, f"{call(p)} {UNIT[p['market_code']]}. "
+                   f"{got}.", bb.SANS, 20 * scale, dim)
+        if p["actual"] is not None:
+            size = 19 * scale
+            word = {True: "WON", False: "(LOST)", None: "PUSH"}[p["hit"]]
+            wide = c.width(word, bb.CAPS, size, 0.12) + size * 1.6
+            bx, by, bh = x + w - wide, base - size * 1.25, size * 2.1
+            if p["hit"]:
+                c.rect(bx, by, wide, bh, accent)
+                ink = bb.rgb(art.NIGHT)
+            else:
+                ink = bb.rgb(LOSS) if p["hit"] is False else dim
+                c.frame(bx, by, wide, bh, ink, t=2)
+            c.text(bx + size * 0.8, by + bh / 2 + size * 0.36, word, bb.CAPS,
+                   size, ink, track=0.12)
+        y += row
+        if i < len(picks) - 1:
+            c.rect(x, y, w, 1, hair)
+    return y
+
+
+def face(picks):
+    """Whose photograph leads a receipt: the best-known player on it."""
+    return max(picks, key=lambda p: p.get("star") or 0)
+
+
+def art_receipt(path, label, picks, lead, score, first, last, r):
+    w, h = 1080, 1350
+    team = lead.get("team")
+    accent = bb.rgb(art.colours(team)[1])
+    white = bb.rgb(art.WHITE)
+    dim = bb.mix(art.NIGHT, art.WHITE, 0.62)
+    c = art.ground(w, h, team, fall=0.5 if first else 0.3, glow=(0.5, 0.22))
+    art.brand(c, 46, white)
+    art.mid(c, 126, label, bb.CAPS, 20, white, track=0.16, room=w - 160)
+    y = 190
+    if first:
+        won, n = score
+        art.place(c, art.headshot(lead.get("headshot")), w / 2, 150, 300)
+        art.mid(c, 612, f"{won} OF {n}", bb.SERIF_BLACK, 176, accent, room=w - 200)
+        art.mid(c, 662, "POSTED PICKS WERE RIGHT", bb.CAPS, 26, white, track=0.28)
+        y = 700
+    foot = 1196 if last and r else 1236
+    row = min(96, (foot - y) / max(len(picks), 1))
+    art_rows(c, 110, y, w - 220, picks, row, accent)
+    if last and r:
+        art.mid(c, 1232, f"ELITE PICKS THIS SEASON: {r['hit'] * 100:.1f}% RIGHT. "
+                f"PRICES NEEDED {r['needed'] * 100:.1f}%.", bb.CAPS, 17, dim,
+                track=0.14)
+    art.notice(c, dim)
+    c.save(path)
+
+
+def art_receipt_x(path, label, picks, lead, score):
+    w, h = 1600, 900
+    team = lead.get("team")
+    accent = bb.rgb(art.colours(team)[1])
+    white = bb.rgb(art.WHITE)
+    dim = bb.mix(art.NIGHT, art.WHITE, 0.62)
+    c = art.ground(w, h, team, fall=0.6, glow=(0.24, 0.42), across=True)
+    shot = art.headshot(lead.get("headshot"))
+    art.place(c, shot, 400, 110, 640, fade=0.3)
+    cx = 1110 if shot is not None else w / 2
+    won, n = score
+    art.brand(c, 60, white, 40, cx=cx)
+    art.mid(c, 150, label, bb.CAPS, 19, white, track=0.16, room=760, cx=cx)
+    art.mid(c, 304, f"{won} OF {n}", bb.SERIF_BLACK, 150, accent, room=760, cx=cx)
+    art.mid(c, 350, "POSTED PICKS WERE RIGHT", bb.CAPS, 22, white, track=0.28, cx=cx)
+    shown = picks[:6]
+    row = min(62, 370 / len(shown))
+    y = art_rows(c, cx - 380, 384, 760, shown, row, accent, 0.8)
+    if len(picks) > len(shown):
+        art.mid(c, y + 30, f"AND {len(picks) - len(shown)} MORE AT PRIORLINE.IO",
+                bb.CAPS, 17, dim, track=0.14, cx=cx)
+    art.notice(c, dim)
+    c.save(path)
+
+
 # --------------------------------------------------------------- captions
 
 TAGS = "#NFL #PlayerProps #NFLProps #SportsAnalytics"
@@ -1143,14 +1236,26 @@ def receipt(api, start, end):
     out.mkdir(parents=True, exist_ok=True)
     for old in out.glob("*.png"):
         old.unlink()
-    per = 6
-    pages = [uniq[i:i + per] for i in range(0, len(uniq), per)]
+    label = f"THE RECEIPT. {sub.upper()}"
+    lead = face(uniq)
+    if not lead.get("headshot") or not lead.get("team"):
+        # A post built before the slides carried a photograph.
+        try:
+            who = get(api, f"players/{lead['player_id']}")["player"]
+            lead.setdefault("team", who.get("team"))
+            lead["team"] = lead.get("team") or who.get("team")
+            lead["headshot"] = lead.get("headshot") or who.get("headshot")
+        except Exception:
+            pass
+    # The first page carries the photograph and the score, so it holds fewer.
+    pages, rest = [uniq[:5]], uniq[5:]
+    while rest:
+        pages.append(rest[:9])
+        rest = rest[9:]
     for i, page in enumerate(pages):
-        receipt_slide(out / f"ig-{i + 1:02d}-receipt.png", title, sub, page, r,
-                      page=(i, len(pages), score))
-    receipt_card(out / "x-card.png", title, [when, games[0] if len(games) == 1
-                                             else "Every pick I posted"],
-                 uniq, r, score)
+        art_receipt(out / f"ig-{i + 1:02d}-receipt.png", label, page, lead,
+                    score, i == 0, i == len(pages) - 1, r)
+    art_receipt_x(out / "x-card.png", label, uniq, lead, score)
     won, n = score
     marks = [f"{'W' if p['hit'] else 'L' if p['hit'] is False else '-'}  "
              f"{p['player_name']} {call(p).lower()} {TIGHT[p['market_code']]}"

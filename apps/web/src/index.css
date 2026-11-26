@@ -890,6 +890,22 @@ button:focus-visible, a:focus-visible, [role="option"]:focus-visible {
 .ps-ident-name { line-height: 20px; }
 .ps-ident .matchup { line-height: 16px; }
 .ps-ident .ps-gamedate { line-height: 18px; }
+
+/*
+ * The numbers under a pick: who the offence runs through and what the defence
+ * allows. A sentence or two under the player, quieter than the name and
+ * allowed to wrap, because the cell above it truncates on one line and this
+ * is the one thing in the row meant to be read rather than scanned.
+ */
+.ps-why {
+  margin: 6px 0 0;
+  max-width: 44ch;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--text-dim);
+  white-space: normal;
+  text-wrap: pretty;
+}
 .ps-ident-name {
   font-size: 0.94rem;
   font-weight: 600;

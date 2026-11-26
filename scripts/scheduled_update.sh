@@ -125,6 +125,14 @@ log() { printf '\n[%s] ==> %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$1"; }
 # the backup. Both reads are free, so the only cost is a few minutes, and the
 # projections are rebuilt as well as the edges because the edge builder reads
 # who is ruled out from the same tables.
+# The numbers under each pick, for the site to show beside it. After the board
+# and apart from it: its own table, and a failure here changes nothing on the
+# board, so it is logged and the run goes on. See build_why.py.
+explain_the_board() {
+  log "work out the numbers under each pick"
+  $COMPOSE run --rm training python build_why.py     || log "the numbers under the picks failed; the board is unaffected"
+}
+
 rebuild_on_current_news() {
   log "re-read injuries, depth charts and rosters"
   docker build -q -f jobs/ingestion/Dockerfile -t priorline-ingest . >/dev/null
@@ -139,6 +147,7 @@ rebuild_on_current_news() {
     training python build_projections.py
   log "rebuild the board"
   $COMPOSE run --rm training python build_prop_edges.py
+  explain_the_board
 }
 
 case "$MODE" in
@@ -927,6 +936,7 @@ $COMPOSE run --rm -e MARKETS_ONLY="${MARKETS_ONLY:-}" \
 
 log "build the board"
 $COMPOSE run --rm training python build_prop_edges.py
+explain_the_board
 
 if [ "$MODE" != "--board" ] && [ "${ODDS:-0}" = "1" ]; then
   log "closing line value"

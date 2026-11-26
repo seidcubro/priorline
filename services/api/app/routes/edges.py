@@ -7,6 +7,7 @@ table (see docs/API.md "The gap"). The frontend edges dashboard is the
 primary consumer.
 """
 
+import json
 import os
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -443,6 +444,30 @@ def list_edges(
         "offset": offset,
         "edges": [dict(r) for r in rows],
     }
+
+
+@router.get("/edges/why")
+def edges_why(db: Session = Depends(get_db)):
+    """The numbers under each pick on the board: who the offence runs through
+    and what the defence across from him allows.
+
+    Keyed "player|market". Built by build_why.py after the board, into a table
+    of its own. If that table is missing or empty this returns nothing and the
+    board is drawn without the lines, which is how it was before.
+    """
+    try:
+        rows = db.execute(
+            text("SELECT player_name, market_code, why FROM edge_why")).fetchall()
+    except Exception:
+        db.rollback()
+        return {"ok": True, "why": {}}
+    out = {}
+    for name, market, why in rows:
+        try:
+            out[f"{name}|{market}"] = json.loads(why)
+        except (TypeError, ValueError):
+            continue
+    return {"ok": True, "why": out}
 
 
 @router.get("/edges/summary")

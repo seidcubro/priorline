@@ -445,6 +445,23 @@ export async function fetchEdges(args?: {
  *
  * Backend: GET /edges/summary
  */
+/**
+ * The numbers under each pick: how much of the offence runs through the
+ * player and what the defence across from him allows, with its rank.
+ *
+ * Keyed "player|market". Empty when the build that writes them has not run,
+ * and the board is then drawn without them.
+ *
+ * Backend: GET /edges/why
+ */
+export type EdgeWhy = { says: string[]; tiles: [string, string, string][] };
+
+export async function fetchEdgesWhy(): Promise<Record<string, EdgeWhy>> {
+  const data = await http<{ ok: boolean; why: Record<string, EdgeWhy> }>(
+    `${getApiBase()}/edges/why`);
+  return data.why ?? {};
+}
+
 export async function fetchEdgesSummary(): Promise<EdgesSummary> {
   return http<EdgesSummary>(`${getApiBase()}/edges/summary`);
 }

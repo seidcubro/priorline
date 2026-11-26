@@ -31,6 +31,8 @@ import {
   type EdgesSummary,
   type EdgeTier,
   type PropEdge,
+  fetchEdgesWhy,
+  type EdgeWhy,
 } from "../api";
 
 /**
@@ -238,6 +240,13 @@ export default function EdgesDashboard() {
 
   useEffect(() => {
     fetchEdgesSummary().then(setSummary).catch(() => setSummary(null));
+  }, []);
+
+  // The numbers under each pick. A board without them is still a board, so a
+  // failure here is silent and the rows are drawn as they always were.
+  const [why, setWhy] = useState<Record<string, EdgeWhy>>({});
+  useEffect(() => {
+    fetchEdgesWhy().then(setWhy).catch(() => setWhy({}));
   }, []);
 
   useEffect(() => {
@@ -713,6 +722,11 @@ export default function EdgesDashboard() {
                         <div className="ps-gamedate">{fmtGameDate(e)}</div>
                       </div>
                     </div>
+                    {why[`${e.player_name}|${e.market_code}`]?.says?.length ? (
+                      <p className="ps-why">
+                        {why[`${e.player_name}|${e.market_code}`].says.join(" ")}
+                      </p>
+                    ) : null}
                   </td>
                   <td data-label="Market">{marketLabel(e.market_code)}</td>
                   <td data-label="Line" className="num">

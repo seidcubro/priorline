@@ -60,7 +60,7 @@ services:
       ODDS_API_SPORT: ${ODDS_API_SPORT:-americanfootball_nfl}
       ODDS_API_REGIONS: ${ODDS_API_REGIONS:-us}
       ODDS_API_ODDS_FORMAT: ${ODDS_API_ODDS_FORMAT:-american}
-      ODDS_API_BOOKMAKERS: ${ODDS_API_BOOKMAKERS:-draftkings,fanduel,betmgm}
+      ODDS_API_BOOKMAKERS: ${ODDS_API_BOOKMAKERS:-draftkings,fanduel,betmgm,williamhill_us,fanatics,espnbet,betrivers,hardrockbet,ballybet,betparx}
       ODDS_MIN_CREDITS: ${ODDS_MIN_CREDITS:-500}
       # Without this every write endpoint answers 503. That is the correct
       # default for a box on the public internet.
@@ -127,7 +127,7 @@ services:
       ODDS_API_BASE_URL: ${ODDS_API_BASE_URL:-https://api.the-odds-api.com/v4}
       ODDS_API_SPORT: ${ODDS_API_SPORT:-americanfootball_nfl}
       ODDS_API_REGIONS: ${ODDS_API_REGIONS:-us}
-      ODDS_API_BOOKMAKERS: ${ODDS_API_BOOKMAKERS:-draftkings,fanduel,betmgm}
+      ODDS_API_BOOKMAKERS: ${ODDS_API_BOOKMAKERS:-draftkings,fanduel,betmgm,williamhill_us,fanatics,espnbet,betrivers,hardrockbet,ballybet,betparx}
     volumes:
       - ../services/training/artifacts:/artifacts
       # Read-only, so audit_freshness.py can compare this service's market map

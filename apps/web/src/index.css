@@ -849,7 +849,7 @@ button:focus-visible, a:focus-visible, [role="option"]:focus-visible {
    * every width and a matching min-width means the columns keep their
    * proportions and the wrapper scrolls instead of crushing anything.
    */
-  min-width: 1256px; /* the sum of the board's declared columns */
+  min-width: 1332px; /* the sum of the board's declared columns */
 }
 /*
  * Deliberately wider than a 1440px viewport, so the board scrolls sideways
@@ -916,19 +916,95 @@ button:focus-visible, a:focus-visible, [role="option"]:focus-visible {
  * player's cell is shown instead.
  */
 .ps-why-inline { display: none; }
+.ps-why-label {
+  margin-right: 10px;
+  font-family: var(--font-display);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
 .ps-table tbody tr.has-why { border-bottom: 0; }
-.ps-table tbody tr.ps-whyrow:hover { background: transparent; }
+/*
+ * The cells of a board row are a fixed 84px so every row is the same height.
+ * That is right for the row and wrong for the line under it, which was being
+ * stretched to 84px to hold one sentence. This row is as tall as its sentence.
+ */
 .ps-table tbody tr.ps-whyrow td {
-  padding-top: 0;
-  padding-bottom: 14px;
-  padding-left: 68px;
+  height: auto;
+  max-height: none;
+  overflow: visible;
+  padding: 0 var(--s4) 16px 78px;
   text-align: left;
 }
-.ps-whyrow .ps-why { margin: 0; max-width: 118ch; font-size: 0.82rem; }
+.ps-whyrow .ps-why {
+  margin: 0;
+  max-width: none;
+  font-size: 0.86rem;
+  color: var(--text);
+}
+/* One entry, two rows: they light up together. */
+.ps-table tbody tr.has-why:hover + tr.ps-whyrow,
+.ps-table tbody tr.ps-whyrow:hover { background: var(--bg-hover); }
+.ps-table tbody tr.has-why:has(+ tr.ps-whyrow:hover) { background: var(--bg-hover); }
+
+/*
+ * The board's rows, made to read as entries.
+ *
+ * Each one carries its tier down its left edge, so the eye can run the column
+ * and find the top of the card without reading a chip. The name is set in the
+ * ledger's serif, because it is the thing being looked up. The call is a solid
+ * block, green for an over and ink for an under: it was an outlined word in a
+ * column too narrow for it, which is why UNDER lost its right edge. Red is
+ * kept for losses, so an under is not red.
+ */
+.ps-table tbody tr[data-tier] > td:first-child { box-shadow: inset 5px 0 0 var(--tier-small-bd); }
+.ps-table tbody tr[data-tier="elite"] > td:first-child { box-shadow: inset 5px 0 0 var(--tier-elite-fg); }
+.ps-table tbody tr[data-tier="strong"] > td:first-child { box-shadow: inset 5px 0 0 var(--tier-strong-fg); }
+.ps-table tbody tr[data-tier="medium"] > td:first-child { box-shadow: inset 5px 0 0 var(--tier-medium-fg); }
+.ps-table tbody tr.is-bet,
+.ps-table tbody tr.is-bet + tr.ps-whyrow { background: var(--bg-raised); }
+.ps-table tbody tr.is-bet:hover { background: var(--bg-hover); }
+.ps-table .ps-ident-name {
+  font-family: var(--font-serif);
+  font-size: 1.04rem;
+  font-weight: 800;
+  letter-spacing: -0.005em;
+}
+.ps-table td[data-label="Model"] { font-weight: 700; font-size: 1rem; }
+.ps-table td[data-label="Pick"] .side-over,
+.ps-table td[data-label="Pick"] .side-under {
+  display: inline-block;
+  min-width: 84px;
+  padding: 7px 12px;
+  border: 0;
+  border-radius: 0;
+  font-family: var(--font-display);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-align: center;
+  color: #f3f0e2;
+}
+.ps-table td[data-label="Pick"] .side-over { background: var(--accent); }
+.ps-table td[data-label="Pick"] .side-under { background: var(--text); }
+.ps-table col.c-pick { width: 116px; }
+.ps-table col.c-book { width: 176px; }
+.ps-alsobooks {
+  display: block;
+  margin-top: 5px;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  color: var(--text-dim);
+  white-space: normal;
+}
 @media (max-width: 960px) {
   .ps-table tbody tr.ps-whyrow { display: none; }
   .ps-why-inline { display: block; }
+  .ps-why-label { display: block; margin: 0 0 2px; }
   .ps-table tbody tr.has-why { border-bottom: 1px solid var(--border); }
+  .ps-table tbody tr[data-tier] > td:first-child { box-shadow: none; }
 }
 .ps-ident-name {
   font-size: 0.94rem;

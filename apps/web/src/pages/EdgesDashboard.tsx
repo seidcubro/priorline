@@ -668,9 +668,9 @@ export default function EdgesDashboard() {
             <col className="c-num" />
             <col className="c-narrow" />
             <col className="c-narrow" />
-            <col className="c-narrow" />
             <col className="c-prob" />
             <col className="c-narrow" />
+            <col className="c-pick" />
             <col className="c-tier" />
             <col className="c-book" />
           </colgroup>
@@ -708,6 +708,7 @@ export default function EdgesDashboard() {
               return (
                 <Fragment key={e.id}>
                 <tr
+                  data-tier={e.edge_tier}
                   className={`${isBet ? "is-bet" : "is-context"}${says.length ? " has-why" : ""}`}
                 >
                   <td data-label="Player">
@@ -729,7 +730,10 @@ export default function EdgesDashboard() {
                       </div>
                     </div>
                     {says.length ? (
-                      <p className="ps-why ps-why-inline">{says.join(" ")}</p>
+                      <p className="ps-why ps-why-inline">
+                        <span className="ps-why-label">Why?</span>
+                        {says.join(" ")}
+                      </p>
                     ) : null}
                   </td>
                   <td data-label="Market">{marketLabel(e.market_code)}</td>
@@ -886,11 +890,16 @@ export default function EdgesDashboard() {
                     <span className="book-chip best">
                       {e.bookmaker_title ?? e.bookmaker_key} {e.line ?? "-"}
                     </span>
-                    {e.alts.map((a) => (
-                      <span className="book-chip" key={a.id}>
-                        {a.bookmaker_title ?? a.bookmaker_key} {a.line ?? "-"}
+                    {/* The other books on one quiet line. As a chip each they
+                        stacked three deep and made a row with three books
+                        taller than a row with one, so no two entries on the
+                        board were the same height. */}
+                    {e.alts.length ? (
+                      <span className="ps-alsobooks">
+                        {e.alts.map((a) =>
+                          `${a.bookmaker_title ?? a.bookmaker_key} ${a.line ?? "-"}`).join(" · ")}
                       </span>
-                    ))}
+                    ) : null}
                     {/* Where the rest of the market is, when it is somewhere
                         else. Silent when every book agrees, which is most of
                         them, so this only appears when it is telling you
@@ -907,9 +916,13 @@ export default function EdgesDashboard() {
                   </td>
                 </tr>
                 {says.length ? (
-                  <tr className={`ps-whyrow ${isBet ? "is-bet" : "is-context"}`}>
+                  <tr data-tier={e.edge_tier}
+                      className={`ps-whyrow ${isBet ? "is-bet" : "is-context"}`}>
                     <td colSpan={10}>
-                      <p className="ps-why">{says.join(" ")}</p>
+                      <p className="ps-why">
+                        <span className="ps-why-label">Why?</span>
+                        {says.join(" ")}
+                      </p>
                     </td>
                   </tr>
                 ) : null}

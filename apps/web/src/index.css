@@ -628,8 +628,13 @@ button:focus-visible, a:focus-visible, [role="option"]:focus-visible {
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
   box-shadow: var(--shadow-menu);
-  max-height: 300px;
+  /* Never taller than the room under it on a phone, and it scrolls by itself:
+     the page behind does not move when the list reaches its end. */
+  max-height: min(300px, 46vh);
   overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
   animation: menu-in 0.18s var(--ease) both;
 }
 @keyframes menu-in {

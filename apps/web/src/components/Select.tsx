@@ -152,13 +152,17 @@ export default function Select({
               data-active={i === active}
               className="ps-select-opt"
               onMouseEnter={() => setActive(i)}
-              // pointerdown rather than click: the document listener above closes
-              // the menu on pointerdown, which would otherwise unmount this before
-              // the click ever lands.
+              // Chosen on click, never on pointerdown. On a phone a finger
+              // that lands on the list to scroll it is a pointerdown, and
+              // choosing there picked whatever was under the finger and shut
+              // the menu, so a long list could not be scrolled at all. A
+              // click only fires when the finger lifts without having moved.
+              // The mouse's pointerdown is still cancelled so the button
+              // keeps the keyboard focus while the menu is open.
               onPointerDown={(e) => {
-                e.preventDefault();
-                commit(i);
+                if (e.pointerType === "mouse") e.preventDefault();
               }}
+              onClick={() => commit(i)}
             >
               {o.label}
             </li>

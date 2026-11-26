@@ -24,6 +24,7 @@ BPM = 94.0
 BEAT = 60.0 / BPM
 STEP = BEAT / 4            # a sixteenth
 SWING = 0.028
+OFFSET = 0.0             # where the first beat of the track falls
 
 _rng = np.random.default_rng(94)
 
@@ -190,7 +191,10 @@ def mix(voice, seconds, effects=(), own=None, level=0.34):
     v = np.zeros(n)
     v[:min(n, len(voice))] = voice[:n]
     if own is not None and len(own):
+        # A track of your own comes at whatever level it was mastered to. It is
+        # brought to one loudness first, so the voice always sits on top of it.
         m = np.tile(own, int(np.ceil(n / len(own))))[:n]
+        m = m / (np.sqrt((m ** 2).mean()) + 1e-9) * 0.30
     else:
         m = music(seconds)
     talk = np.clip(envelope(v) / 0.03, 0, 1)
@@ -206,4 +210,46 @@ def mix(voice, seconds, effects=(), own=None, level=0.34):
 
 def pulse(t, sharp=0.2):
     """1 on the beat, falling to nothing before the next. What the picture moves on."""
-    return float(np.exp(-(t % BEAT) / sharp))
+    return float(np.exp(-((t - OFFSET) % BEAT) / sharp))
+
+
+def tempo(x):
+    """The beats a minute of a track and where a beat falls.
+
+    From how its loudness rises and falls: the spacing at which that pattern
+    best lines up with itself is the beat, or half of it, or twice it, so the
+    answer is folded into the range a head nods at. Good enough to move a
+    picture on.
+    """
+    hop = 441
+    seg = x[RATE * 20:RATE * 110] if len(x) > RATE * 120 else x
+    skip = (RATE * 20 if len(x) > RATE * 120 else 0) / RATE
+
+    def rises(lo, hi):
+        b = band(seg, lo, hi)
+        n = len(b) // hop
+        e = (b[:n * hop].reshape(n, hop) ** 2).sum(axis=1)
+        r = np.maximum(0, np.diff(np.log1p(e * 50)))
+        return r - r.mean()
+
+    r = rises(30, 16000)
+    best, lag = -1.0, 0
+    for k in range(30, 172):
+        score = float((r[:-k] * r[k:]).sum()) / (len(r) - k)
+        if score > best:
+            best, lag = score, k
+    bpm = 6000.0 / lag
+    while bpm >= 140:
+        bpm /= 2
+    while bpm < 70:
+        bpm *= 2
+    beat = 60.0 / bpm
+    low = rises(30, 180)
+    times = (np.arange(len(low)) + 1) * hop / RATE + skip
+    best, first = -1e9, 0.0
+    for o in np.arange(0, beat, 0.01):
+        near = np.abs(((times - o + beat / 2) % beat) - beat / 2) < 0.02
+        score = float(low[near].sum())
+        if score > best:
+            best, first = score, float(o)
+    return bpm, first

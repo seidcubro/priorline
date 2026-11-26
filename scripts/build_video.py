@@ -61,10 +61,19 @@ import post_sound as snd
 
 W, H, FPS = 1080, 1920, 30
 RATE = snd.RATE
-VOICE = "en-US-BrianMultilingualNeural"
-VOICES = ("en-US-BrianMultilingualNeural", "en-US-AndrewMultilingualNeural",
-          "en-US-GuyNeural", "en-US-RogerNeural", "en-US-EmmaMultilingualNeural",
-          "en-US-AvaMultilingualNeural")
+# Three ways to get a voice, best first.
+#   eleven   ElevenLabs. The one that sounds like a person. Needs an account
+#            and its key in the ELEVENLABS_API_KEY environment variable.
+#   kokoro   Kokoro, an open model that runs on this machine. Free, no account,
+#            nothing leaves the computer. The default.
+#   edge     Microsoft's read-aloud voices. Free, and the flattest of the three.
+VOICE = {"kokoro": "am_michael", "eleven": "iP95p4xoKVk53GoZ742B",
+         "edge": "en-US-BrianMultilingualNeural"}
+VOICES = ("am_michael", "am_fenrir", "am_puck", "am_liam", "am_eric", "am_adam",
+          "am_echo", "am_onyx", "af_heart", "af_bella")
+ENGINE = ["kokoro"]
+MODEL = Path(__file__).resolve().parent.parent / "marketing" / ".cache"
+_KOKORO = []
 TOP, FOOT = 730, 1390          # the band the drawings live in
 CAP_Y = 1520                   # captions
 SAY_UNIT = {
@@ -186,8 +195,84 @@ def decode(path):
     return np.frombuffer(raw, dtype=np.int16).astype(np.float64) / 32768.0
 
 
+def spread(line, sound):
+    """When each word falls, for a voice that does not say.
+
+    The speech is found between the silence at either end and shared out
+    among the words by their length, with a breath after each stop.
+    """
+    words = line.split()
+    loud = np.where(np.abs(sound) > 0.02)[0]
+    start = loud[0] / RATE if len(loud) else 0.0
+    end = loud[-1] / RATE if len(loud) else len(sound) / RATE
+    weight = [len(re.sub(r"[^A-Za-z0-9]", "", w)) + 1.5
+              + (3.5 if w[-1:] in ".!?" else 1.5 if w[-1:] == "," else 0) for w in words]
+    total = sum(weight) or 1.0
+    marks, t = [], start
+    for w, k in zip(words, weight):
+        d = (end - start) * k / total
+        marks.append((t, d * 0.9, w.strip(".,!?")))
+        t += d
+    return marks
+
+
+def kokoro(line, voice):
+    if not _KOKORO:
+        from kokoro_onnx import Kokoro
+        _KOKORO.append(Kokoro(str(MODEL / "kokoro-v1.0.onnx"),
+                              str(MODEL / "voices-v1.0.bin")))
+    x, sr = _KOKORO[0].create(line, voice=voice, speed=1.12, lang="en-us")
+    x = np.asarray(x, dtype=np.float64)
+    n = int(len(x) * RATE / sr)
+    x = np.interp(np.arange(n) * sr / RATE, np.arange(len(x)), x)
+    return x / (np.abs(x).max() + 1e-9) * 0.7
+
+
+def eleven(line, voice, tmp, i):
+    """ElevenLabs, with the time of every letter, which gives the time of every word."""
+    import base64
+    import os
+    import urllib.request
+    key = os.environ.get("ELEVENLABS_API_KEY")
+    if not key:
+        raise SystemExit("ELEVENLABS_API_KEY is not set, so there is no ElevenLabs voice")
+    body = json.dumps({"text": line, "model_id": "eleven_multilingual_v2",
+                       "voice_settings": {"stability": 0.35, "similarity_boost": 0.8,
+                                          "style": 0.55, "use_speaker_boost": True}})
+    req = urllib.request.Request(
+        f"https://api.elevenlabs.io/v1/text-to-speech/{voice}/with-timestamps",
+        data=body.encode(), headers={"xi-api-key": key, "Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=120) as r:
+        got = json.load(r)
+    mp3 = Path(tmp) / f"s{i}.mp3"
+    mp3.write_bytes(base64.b64decode(got["audio_base64"]))
+    al = got.get("alignment") or {}
+    chars = al.get("characters") or []
+    starts = al.get("character_start_times_seconds") or []
+    ends = al.get("character_end_times_seconds") or []
+    marks, word, w0, w1 = [], "", None, None
+    for ch, a, b in zip(chars, starts, ends):
+        if ch.isspace():
+            if word:
+                marks.append((w0, w1 - w0, word.strip(".,!?")))
+            word, w0 = "", None
+            continue
+        if w0 is None:
+            w0 = a
+        word, w1 = word + ch, b
+    if word:
+        marks.append((w0, w1 - w0, word.strip(".,!?")))
+    sound = decode(mp3)
+    return sound, marks or spread(line, sound)
+
+
 def speak(line, tmp, i, voice):
     """One line said aloud: its sound, and when each word falls."""
+    if ENGINE[0] == "kokoro":
+        sound = kokoro(line, voice)
+        return sound, spread(line, sound)
+    if ENGINE[0] == "eleven":
+        return eleven(line, voice, tmp, i)
     mp3 = Path(tmp) / f"s{i}.mp3"
     marks = asyncio.run(_speak(line, mp3, voice))
     return decode(mp3), marks
@@ -909,8 +994,14 @@ def samples(folder, line):
     """The same sentence in each voice, to choose one by ear."""
     out = Path(folder) / "voices"
     out.mkdir(parents=True, exist_ok=True)
+    for old in out.glob("*.mp3"):
+        old.unlink()
     for v in VOICES:
-        asyncio.run(_speak(line, out / f"{v}.mp3", v))
+        x = kokoro(line, v)
+        raw = (np.clip(x, -1, 1) * 32000).astype(np.int16).tobytes()
+        subprocess.run([FFMPEG, "-y", "-loglevel", "error", "-f", "s16le", "-ar",
+                        str(RATE), "-ac", "1", "-i", "-", str(out / f"{v}.mp3")],
+                       input=raw, check=True)
         print(f"  {v}.mp3")
     print(f"{len(VOICES)} voices written to {out}")
 
@@ -925,7 +1016,9 @@ def main():
                     "Left out, it is the day of the game")
     ap.add_argument("--instagram", default="priorlineio",
                     help="the Instagram account named at the end, without the @")
-    ap.add_argument("--voice", default=VOICE)
+    ap.add_argument("--engine", choices=["kokoro", "eleven", "edge"], default="kokoro",
+                    help="where the voice comes from (see the top of this file)")
+    ap.add_argument("--voice", help="a voice of that engine, if not its usual one")
     ap.add_argument("--voices", action="store_true",
                     help="write a sample of each voice and stop")
     ap.add_argument("--music", help="a track of your own to put under the voice "
@@ -935,6 +1028,8 @@ def main():
     a = ap.parse_args()
     if a.no_photos:
         art.PHOTOS[0] = False
+    ENGINE[0] = a.engine
+    a.voice = a.voice or VOICE[a.engine]
     folder = Path(a.folder)
     data = json.loads((folder / "posted.json").read_text(encoding="utf-8"))
     if a.voices:
@@ -945,6 +1040,11 @@ def main():
                 f"{p['side']} {bp.num(p['line'])}!")
         return
     own = decode(a.music) if a.music else None
+    if own is not None:
+        bpm, first = snd.tempo(own)
+        snd.BEAT, snd.OFFSET = 60.0 / bpm, first
+        print(f"  the track runs at about {bpm:.0f} beats a minute; the picture "
+              f"moves on that")
     r = bp.record(a.api)
     done = 0
     for i, p in enumerate(data["picks"], 1):

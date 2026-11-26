@@ -2145,7 +2145,13 @@ def ingest_game_day_status():
     now = pd.Timestamp.now(tz="UTC")
     age_h = (now - d["reported_at"]).dt.total_seconds() / 3600.0
     ruled = d["status"].isin(["Out", "Doubtful", "Questionable", "Injured Reserve"])
+    # Injured reserve is kept however old the ruling is. It is a place on the
+    # roster, not a report: a player put there three weeks ago is as out today
+    # as the day it happened, and he is not on the weekly report either, so
+    # dropping him by age left the board with no word that the starter was
+    # gone. Everything else goes stale and is dropped.
     keep = ((ruled & (age_h <= GAME_DAY_MAX_AGE_DAYS * 24))
+            | (d["status"] == "Injured Reserve")
             | ((d["status"] == "Active") & (age_h <= GAME_DAY_ACTIVE_HOURS)))
     d = d[keep & d["reported_at"].notna()].copy()
     print(f"  game-day status: {len(rows)} rows in the feed, {len(d)} recent "

@@ -228,7 +228,7 @@ def main():
     anchor_cal = ma.load(ARTIFACT_DIR)
     # Same adjustment the edge builder applies, built the same way, so a
     # backup quarterback reads the same number on both pages.
-    vacated_vol = vv.VacatedVolume(engine, ctx, vv.load_params(ARTIFACT_DIR))
+    vacated_vol = vv.VacatedVolume(engine, ctx, vv.load_all(ARTIFACT_DIR))
 
     if MARKETS_ONLY:
         before = len(df)

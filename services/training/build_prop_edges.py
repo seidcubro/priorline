@@ -1814,7 +1814,7 @@ def main():
     ctx = load_current_context(engine)
     # Who inherits the volume of a ruled-out teammate, and how much. Built once;
     # only pools that beat "unchanged" on a held-out season are applied.
-    vacated_vol = vv.VacatedVolume(engine, ctx, vv.load_params(artifact_dir))
+    vacated_vol = vv.VacatedVolume(engine, ctx, vv.load_all(artifact_dir))
     stale_factors = load_stale_role_factors(artifact_dir)
     last_played = load_last_played(engine)
     ruled_out: set[str] = set()

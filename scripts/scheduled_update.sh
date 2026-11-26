@@ -908,6 +908,13 @@ if [ "$FAST" = "0" ]; then
   # projections, which read it. See vacated_volume.py.
   log "refit vacated volume"
   $COMPOSE run --rm training python fit_vacated_volume.py
+
+  # Which of a running back's games match this week's backfield. Fitted on the
+  # seasons before the last two and scored on those two; written as accepted
+  # only if it beats his eight-game window in both. Before the projections,
+  # which read it. See role_regime.py.
+  log "refit role regime"
+  $COMPOSE run --rm -e WRITE=1 training python fit_role_regime.py
 fi
 
 log "project every eligible player"

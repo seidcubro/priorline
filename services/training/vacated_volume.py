@@ -60,6 +60,8 @@ import numpy as np
 import pandas as pd
 from sqlalchemy import text
 
+import role_regime as rr
+
 POOLS = {
     # pool: (positions drawing from it, share that makes a player established
     #        enough for his absence to vacate anything)
@@ -140,6 +142,20 @@ def load_params(artifact_dir: Path) -> dict:
     return {pool: p for pool, p in data.get("pools", {}).items() if p.get("accepted")}
 
 
+def load_all(artifact_dir: Path) -> dict:
+    """The accepted pools, and the running backs' role regime if that was accepted.
+
+    The two are fitted and accepted separately and live in separate files, so
+    either can be live without the other. The regime sits under its own key,
+    which no pool is called.
+    """
+    params = dict(load_params(artifact_dir))
+    regime = rr.load_params(artifact_dir)
+    if regime:
+        params["regime"] = regime
+    return params
+
+
 # ---------------------------------------------------------------- serving
 
 class VacatedVolume:
@@ -153,6 +169,9 @@ class VacatedVolume:
         self.params = params
         self.adjustments: dict[tuple[str, str], dict] = {}
         self.notes: dict[str, str] = {}
+        # Running backs whose job changed with the backfield. See role_regime.py.
+        self.regime: dict[str, dict] = {}
+        self._ratio: dict[tuple[str, str], float] = {}
         if not params:
             return
 
@@ -212,6 +231,25 @@ class VacatedVolume:
         # Each player's current team is his most recent one.
         latest = games.drop_duplicates("player_id", keep="last").set_index("player_id")
         rates = self._rates(games)
+
+        regime = params.get("regime")
+        if regime:
+            season = games["season"].max()
+            backs = games[(games["season"] == season)
+                          & games["position"].isin(rr.POSITIONS)]
+            found = rr.levels(backs, ruled_out, float(regime["k"]),
+                              float(regime.get("gap", rr.GAP)))
+            for pid, got in found.items():
+                got["rates"] = rates.get(pid, {})
+                self.regime[pid] = got
+                who = ", ".join(got["out"]) or "nobody"
+                self.notes[pid] = (f"workload from his games with {who} out: "
+                                   f"{got['level']:.1f} carries, window {got['window']:.1f}")
+            if found:
+                print(f"  role regime: {len(found)} running back(s) projected from "
+                      f"the games that match this week's backfield, not the window: "
+                      + ", ".join(f"{pid} {g['window']:.1f} -> {g['level']:.1f}"
+                                  for pid, g in sorted(found.items())))
 
         for pool, (positions, threshold) in POOLS.items():
             if pool not in params:
@@ -323,6 +361,8 @@ class VacatedVolume:
         if spec is None:
             return False
         pool, rate = spec
+        if pool == "carries" and player_id in self.regime:
+            return rate is None or market_code in self.regime[player_id]["rates"]
         adj = self.adjustments.get((player_id, pool))
         return bool(adj) and (rate is None or market_code in adj["rates"])
 
@@ -337,6 +377,10 @@ class VacatedVolume:
         if spec is None:
             return None
         pool, rate = spec
+        got = self.regime.get(player_id) if pool == "carries" else None
+        if got:
+            per = 1.0 if rate is None else got["rates"].get(market_code)
+            return None if per is None else float(got["level"] * per)
         adj = self.adjustments.get((player_id, pool))
         if not adj:
             return None
@@ -363,4 +407,27 @@ class VacatedVolume:
         implied = self.level(player_id, market_code)
         if implied is None or value <= 0:
             return 1.0
+        if player_id in self.regime and MARKETS[market_code][0] == "carries":
+            # A back whose job changed is not raised to a level, he is moved
+            # to it, down as well as up: the starter coming back takes carries
+            # away. Both builders call this with the point projection first
+            # and with the median of the range after, and the two are moved to
+            # different places. The point goes to the level. The median goes
+            # to where the middle game of a back at that level actually lands,
+            # which is under the level (rr.MEDIAN).
+            #
+            # Giving the median the point's ratio instead kept whatever shape
+            # the model had drawn for him, and for a backup that is a backup's
+            # shape: Emmett Johnson's range had its median at 75% of its mean,
+            # so a level of 76 rushing yards came with a median of 57, and the
+            # board, which takes its side from the median, would still have
+            # said under on a back about to carry 18 times.
+            key = (player_id, market_code)
+            if key not in self._ratio:
+                self._ratio[key] = value
+            if abs(value - self._ratio[key]) < 1e-9:
+                target = implied
+            else:
+                target = implied * rr.MEDIAN.get(market_code, 1.0)
+            return float(min(max(target / value, 1.0 / MAX_FACTOR), MAX_FACTOR))
         return float(min(max(implied, value) / value, MAX_FACTOR))

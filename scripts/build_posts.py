@@ -48,6 +48,7 @@ from zoneinfo import ZoneInfo
 import build_brand as bb
 import post_art as art
 import post_depth as deep
+import post_outbox
 
 API = "https://api.priorline.io/api/v1"
 ET = ZoneInfo("America/New_York")
@@ -1178,6 +1179,7 @@ def pregame(api, rows, label, lead, folder, limit, tag, week):
         {"built": dt.datetime.now(ET).isoformat(timespec="minutes"),
          "label": label, "picks": picks}, indent=1), encoding="utf-8")
     print(f"{len(picks)} pick(s), led by {hook['player_name']}, written to {out}")
+    post_outbox.send(out)
     for p in picks:
         print(f"   {p['tier']:<8}{p['player_name']:<22}{call(p):<11}"
               f"{UNIT[p['market_code']]:<17}{price(p['price']):>5}  {p['game']}")
@@ -1288,6 +1290,7 @@ def receipt(api, start, end):
     ])
     write_caption(out, x, ig)
     print(f"{won} of {n} right, written to {out}")
+    post_outbox.send(out)
 
 
 def main():

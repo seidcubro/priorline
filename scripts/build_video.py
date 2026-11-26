@@ -57,6 +57,7 @@ import build_brand as bb
 import build_posts as bp
 import post_art as art
 import post_depth as deep
+import post_outbox
 import post_sound as snd
 
 W, H, FPS = 1080, 1920, 30
@@ -1360,6 +1361,7 @@ def receipt_video(a, folder, own):
                           picks[0].get("last_season") or t.year, own)
     print(f"  {path.name}: {secs:.0f} seconds, {score[0]} of {score[1]} right")
     print(f"written to {out}")
+    post_outbox.send(out)
 
 
 def samples(folder, line):
@@ -1441,6 +1443,7 @@ def main():
         print(f"  {path.name}: {secs:.0f} seconds")
         done += 1
     print(f"{done} video(s) written to {folder}")
+    post_outbox.send(folder)
 
 
 if __name__ == "__main__":

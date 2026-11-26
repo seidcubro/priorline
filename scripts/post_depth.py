@@ -35,7 +35,8 @@ CACHE = Path(__file__).resolve().parent.parent / "marketing" / ".cache"
 BASE = "https://github.com/nflverse/nflverse-data/releases/download"
 COLS = ["game_id", "week", "season_type", "posteam", "defteam", "pass_attempt",
         "rush_attempt", "complete_pass", "sack", "qb_scramble", "yards_gained",
-        "air_yards", "yardline_100", "pass_touchdown", "receiver_player_id",
+        "air_yards", "yardline_100", "pass_touchdown", "rush_touchdown",
+        "receiver_player_id",
         "rusher_player_id", "passer_player_id", "two_point_attempt"]
 NICK = {
     "Cardinals": "ARI", "Falcons": "ATL", "Ravens": "BAL", "Bills": "BUF",
@@ -264,3 +265,232 @@ def depth(p, season):
     except Exception as err:
         print(f"  no underlying numbers for {p.get('player_name')}: {err}")
     return [], []
+
+
+# ------------------------------------------------- the same, told as a story
+#
+# A slide has room for three numbers. A video has time for the whole league:
+# every one of the 32 teams drawn as a bar with the one that matters lit up.
+# beats() returns the numbers a video is cut from, each with the sentence that
+# is said over it.
+
+
+def league(per_team, team, heading, say):
+    v, r, words = ranked(per_team, team)
+    if v is None:
+        return None
+    order = per_team.sort_values()
+    return {"kind": "league", "heading": heading, "team": team,
+            "bars": [(t, float(x)) for t, x in order.items()],
+            "value": v, "rank": r, "words": words, "say": say(fmt(v), words)}
+
+
+def beats(p, season):
+    """The player, his team, and the defence across from him, in that order."""
+    try:
+        D = load(season)
+        team = SAME.get(p.get("team"), p.get("team"))
+        opp = SAME.get(p.get("opponent"), p.get("opponent"))
+        gsis, pos, m = p.get("gsis"), p.get("position"), p["market_code"]
+        if not (gsis and team and opp):
+            return []
+        last = p["player_name"].split()[-1]
+        mine_n, opp_n = ABBR.get(team, team), ABBR.get(opp, opp)
+        tg, runs, th = D["targets"], D["runs"], D["thrown"]
+        out = []
+        if m in ("recs", "rec_yds"):
+            me = tg[tg["receiver_player_id"] == gsis]
+            if me.empty:
+                return []
+            games = list(me.sort_values("week")["game_id"].unique())
+            share = 100 * len(me) / max(len(with_him(tg, me)), 1)
+            n = len(games[-4:])
+            per = len(me[me["game_id"].isin(games[-4:])]) / n
+            rate = 100 * me["complete_pass"].mean()
+            out.append({"kind": "count", "kicker": "HIS ROLE", "value": share,
+                        "places": 0, "suffix": "%",
+                        "label": f"OF THE {mine_n.upper()} TARGETS",
+                        "sub": f"{fmt(per)} A GAME OVER HIS LAST {n}",
+                        "say": f"{last} gets {share:.0f} percent of the {mine_n} "
+                               f"targets. That's about {fmt(per)} a game over his "
+                               f"last {n}, and he catches {rate:.0f} percent of them."})
+            out.append(league(per_game(th, "posteam"), team,
+                              "THROWS A GAME, BY OFFENCE",
+                              lambda v, w: f"The {mine_n} throw it {v} times a "
+                                           f"game, {w} in the league."))
+            if pos in POS_WORD:
+                allowed = per_game(tg[(tg["pos"] == pos) & (tg["complete_pass"] == 1)],
+                                   "defteam")
+                out.append(league(allowed, opp, f"CATCHES ALLOWED TO {pos}S, A GAME",
+                                  lambda v, w: f"On the other side, the {opp_n} give "
+                                               f"up {v} catches a game to "
+                                               f"{POS_WORD[pos]}. That's {w} in the league."))
+        elif m in ("rush_yds", "rush_att"):
+            me = runs[runs["rusher_player_id"] == gsis]
+            if me.empty:
+                return []
+            games = list(me.sort_values("week")["game_id"].unique())
+            share = 100 * len(me) / max(len(with_him(runs, me)), 1)
+            n = len(games[-4:])
+            per = len(me[me["game_id"].isin(games[-4:])]) / n
+            ypc = me["yards_gained"].sum() / max(len(me), 1)
+            out.append({"kind": "count", "kicker": "HIS ROLE", "value": share,
+                        "places": 0, "suffix": "%",
+                        "label": f"OF THE {mine_n.upper()} CARRIES",
+                        "sub": f"{fmt(per)} A GAME OVER HIS LAST {n}",
+                        "say": f"{last} takes {share:.0f} percent of the {mine_n} "
+                               f"carries. That's {fmt(per)} a game over his last "
+                               f"{n}, at {fmt(ypc)} yards a carry."})
+            out.append(league(per_game(runs, "posteam"), team,
+                              "RUNS A GAME, BY OFFENCE",
+                              lambda v, w: f"The {mine_n} run it {v} times a game, "
+                                           f"{w} in the league."))
+            backs = runs[runs["qb_scramble"] != 1]
+            if m == "rush_yds":
+                allowed = (backs.groupby("defteam")["yards_gained"].sum()
+                           / backs.groupby("defteam").size())
+                out.append(league(allowed, opp, "YARDS A CARRY ALLOWED",
+                                  lambda v, w: f"And the {opp_n} allow {v} yards a "
+                                               f"carry. That's {w} in the league."))
+            else:
+                out.append(league(per_game(backs, "defteam"), opp,
+                                  "CARRIES FACED A GAME, BY DEFENCE",
+                                  lambda v, w: f"And teams run on the {opp_n} {v} "
+                                               f"times a game, {w} in the league."))
+        elif m.startswith("pass_"):
+            me = th[th["passer_player_id"] == gsis]
+            if me.empty:
+                return []
+            n = me["game_id"].nunique()
+            if m == "pass_td":
+                tds = me["pass_touchdown"].sum() / n
+                red = len(me[me["yardline_100"] <= 20]) / n
+                out.append({"kind": "count", "kicker": "THE QUARTERBACK",
+                            "value": tds, "places": 1, "suffix": "",
+                            "label": "TOUCHDOWN PASSES A GAME",
+                            "sub": f"{fmt(red)} THROWS A GAME INSIDE THE 20",
+                            "say": f"{last} is throwing {fmt(tds)} touchdown passes "
+                                   f"a game, on {fmt(red)} throws a game inside "
+                                   f"the 20."})
+                a = D["all"]
+                mine = a[a["posteam"] == team]
+                by_air = float(mine["pass_touchdown"].fillna(0).sum())
+                by_run = float(mine["rush_touchdown"].fillna(0).sum())
+                if by_air + by_run > 0:
+                    share = 100 * by_air / (by_air + by_run)
+                    out.append({"kind": "split", "kicker": f"THE {mine_n.upper()}",
+                                "left": ("THROUGH THE AIR", share),
+                                "right": ("ON THE GROUND", 100 - share),
+                                "heading": "HOW THEY SCORE TOUCHDOWNS",
+                                "say": f"The {mine_n} have scored {share:.0f} "
+                                       f"percent of their touchdowns through the "
+                                       f"air, and {100 - share:.0f} percent on "
+                                       f"the ground."})
+                out.append(league(per_game(th, "defteam", "pass_touchdown", "sum"),
+                                  opp, "TOUCHDOWN PASSES ALLOWED A GAME",
+                                  lambda v, w: f"And the {opp_n} allow {v} "
+                                               f"touchdown passes a game. That's "
+                                               f"{w} in the league."))
+            else:
+                att = len(me) / n
+                comp = 100 * me["complete_pass"].mean()
+                ypa = me["yards_gained"].sum() / max(len(me), 1)
+                out.append({"kind": "count", "kicker": "THE QUARTERBACK",
+                            "value": att, "places": 1, "suffix": "",
+                            "label": "THROWS A GAME",
+                            "sub": f"{comp:.0f}% COMPLETED, {fmt(ypa)} YARDS A THROW",
+                            "say": f"{last} throws it {fmt(att)} times a game, "
+                                   f"completes {comp:.0f} percent, and gets "
+                                   f"{fmt(ypa)} yards a throw."})
+                if m == "pass_yds":
+                    allowed = (th.groupby("defteam")["yards_gained"].sum()
+                               / th.groupby("defteam").size())
+                    head, tail = "YARDS A THROW ALLOWED", "yards a throw"
+                elif m == "pass_completions":
+                    allowed = per_game(th, "defteam", "complete_pass", "sum")
+                    head, tail = "COMPLETIONS ALLOWED A GAME", "completions a game"
+                else:
+                    allowed = per_game(th, "defteam")
+                    head, tail = "THROWS FACED A GAME", "throws a game"
+                out.append(league(allowed, opp, head,
+                                  lambda v, w: f"And the {opp_n} see {v} {tail}. "
+                                               f"That's {w} in the league."))
+        for b in out:
+            if b and b["kind"] == "league":
+                b["kicker"] = f"THE {ABBR.get(b['team'], b['team']).upper()}"
+        return [b for b in out if b]
+    except Exception as err:
+        print(f"  no story for {p.get('player_name')}: {err}")
+        return []
+
+
+# Where each team plays: city, latitude, longitude, and whether there is a
+# roof. A roof that opens is counted as a roof.
+HOME = {
+    "ARI": ("Arizona", 33.5276, -112.2626, True), "ATL": ("Atlanta", 33.7554, -84.4008, True),
+    "BAL": ("Baltimore", 39.2780, -76.6227, False), "BUF": ("Buffalo", 42.7738, -78.7870, False),
+    "CAR": ("Charlotte", 35.2258, -80.8528, False), "CHI": ("Chicago", 41.8623, -87.6167, False),
+    "CIN": ("Cincinnati", 39.0955, -84.5161, False), "CLE": ("Cleveland", 41.5061, -81.6995, False),
+    "DAL": ("Dallas", 32.7473, -97.0945, True), "DEN": ("Denver", 39.7439, -105.0201, False),
+    "DET": ("Detroit", 42.3400, -83.0456, True), "GB": ("Green Bay", 44.5013, -88.0622, False),
+    "HOU": ("Houston", 29.6847, -95.4107, True), "IND": ("Indianapolis", 39.7601, -86.1639, True),
+    "JAX": ("Jacksonville", 30.3239, -81.6373, False), "KC": ("Kansas City", 39.0489, -94.4839, False),
+    "LV": ("Las Vegas", 36.0909, -115.1833, True), "LAC": ("Los Angeles", 33.9535, -118.3392, True),
+    "LA": ("Los Angeles", 33.9535, -118.3392, True), "MIA": ("Miami", 25.9580, -80.2389, False),
+    "MIN": ("Minneapolis", 44.9736, -93.2575, True), "NE": ("Foxborough", 42.0909, -71.2643, False),
+    "NO": ("New Orleans", 29.9511, -90.0812, True), "NYG": ("New Jersey", 40.8135, -74.0745, False),
+    "NYJ": ("New Jersey", 40.8135, -74.0745, False), "PHI": ("Philadelphia", 39.9008, -75.1675, False),
+    "PIT": ("Pittsburgh", 40.4468, -80.0158, False), "SF": ("Santa Clara", 37.4033, -121.9694, False),
+    "SEA": ("Seattle", 47.5952, -122.3316, False), "TB": ("Tampa", 27.9759, -82.5033, False),
+    "TEN": ("Nashville", 36.1665, -86.7713, False), "WAS": ("Washington", 38.9076, -76.8645, False),
+}
+
+
+def weather(home, kickoff):
+    """The forecast for the middle of the game, or that there is a roof.
+
+    Open-Meteo, which asks for no key. `kickoff` is an aware datetime. Returns
+    None if the forecast cannot be read, and then the video says nothing about
+    the weather rather than guess.
+    """
+    import datetime as dt
+    import json
+    if home not in HOME:
+        return None
+    city, lat, lon, roof = HOME[home]
+    if roof:
+        return {"city": city, "roof": True,
+                "say": f"They're under a roof in {city}, so the weather isn't "
+                       f"a factor."}
+    try:
+        when = (kickoff.astimezone(dt.timezone.utc)
+                + dt.timedelta(minutes=90)).replace(minute=0, second=0, microsecond=0)
+        day = when.date().isoformat()
+        url = ("https://api.open-meteo.com/v1/forecast?"
+               f"latitude={lat}&longitude={lon}"
+               "&hourly=temperature_2m,precipitation_probability,precipitation,"
+               "snowfall,wind_speed_10m&temperature_unit=fahrenheit"
+               f"&wind_speed_unit=mph&timezone=UTC&start_date={day}&end_date={day}")
+        req = urllib.request.Request(url, headers={"User-Agent": "post-build"})
+        with urllib.request.urlopen(req, timeout=30) as r:
+            h = json.load(r)["hourly"]
+        i = h["time"].index(when.strftime("%Y-%m-%dT%H:00"))
+        temp, wind = h["temperature_2m"][i], h["wind_speed_10m"][i]
+        wet = h["precipitation_probability"][i] or 0
+        snow = (h["snowfall"][i] or 0) > 0 or (wet >= 40 and temp <= 33)
+    except Exception as err:
+        print(f"  no forecast for {city}: {err}")
+        return None
+    fall = "snow" if snow else "rain"
+    say = f"In {city} it should be about {temp:.0f} degrees"
+    if wind >= 12:
+        say += f", with wind around {wind:.0f} miles an hour"
+    if wet >= 40:
+        say += f", and a {wet:.0f} percent chance of {fall}"
+    say += "."
+    if wind >= 15 or wet >= 60:
+        say += " Weather like that tends to pull passing numbers down."
+    elif wind < 12 and wet < 40:
+        say += " Nothing in the forecast that should change the game."
+    return {"city": city, "roof": False, "temp": temp, "wind": wind,
+            "wet": wet, "fall": fall, "say": say}

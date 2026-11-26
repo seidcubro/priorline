@@ -55,3 +55,15 @@ def recentre(ladder: dict, point: float, position, market_code: str) -> dict:
         return ladder
     k = (point * ratio) / mid
     return {q: v * k for q, v in ladder.items()}
+
+
+def median(value: float, point: float, position, market_code: str) -> float:
+    """A quarterback's rushing median: RATIO x point. Anything else unchanged.
+
+    For the steps that re-read a median after the range is built, so they do
+    not put it back where a running back's would sit.
+    """
+    ratio = RATIO.get(market_code)
+    if ratio is None or str(position or "").upper() != "QB" or not point or point <= 0:
+        return value
+    return float(point * ratio)

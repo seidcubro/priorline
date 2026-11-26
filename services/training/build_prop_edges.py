@@ -2158,6 +2158,13 @@ def main():
             anchored = anchor.apply(
                 anchor_cal, market_code, projection, median_value,
                 cal_q.get(0.25), cal_q.get(0.75))
+            # The anchor reads a rushing median off the point at a running
+            # back's ratio, which is what it was fitted on, and it put a
+            # quarterback's median straight back at 0.88 of his point after the
+            # range had been centred at 0.75. A quarterback's ratio is his own,
+            # so it has the last word. See qb_rushing.py.
+            anchored = qb_rushing.median(anchored, projection, frow.get("position"),
+                                         market_code)
             if abs(anchored - median_value) > 1e-9:
                 # Move the probability with the median, or the row states two
                 # different distributions at once.

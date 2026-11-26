@@ -486,6 +486,9 @@ def main():
                 qs = dict(qs)
                 qs[0.50] = ma.apply(anchor_cal, market_code, pred, qs[0.50],
                                     qs.get(0.25), qs.get(0.75))
+                # A quarterback's rushing median has the last word over the
+                # anchor, as on the board. See qb_rushing.py.
+                qs[0.50] = qb_rushing.median(qs[0.50], pred, r.position, market_code)
 
             p50_raw = qs.get(0.50)
             if qs.get(0.50) is not None:

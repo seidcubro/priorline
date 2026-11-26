@@ -209,3 +209,39 @@ def pill(c, cx, y, text, accent, size=24):
     s = c.S
     c.d.polygon([((ax + 60) * s, ay * s), ((ax + 40) * s, (ay - 11) * s),
                  ((ax + 40) * s, (ay + 11) * s)], fill=ink)
+
+
+LEAVES = ("#e0a030", "#c8591c", "#cda64e", "#8f2f14", "#f0d9a0")
+
+
+def season(c, theme, low=0.50):
+    """Dress a slide for the day. Thanksgiving is falling leaves in both top
+    corners, mirrored on the centre line, and nothing over the player."""
+    if theme != "thanksgiving":
+        return
+    import math
+    import random
+    rnd = random.Random(1126)
+    s = c.S
+    layer = Image.new("RGBA", c.im.size, (0, 0, 0, 0))
+    from PIL import ImageDraw
+    d = ImageDraw.Draw(layer)
+    for _ in range(26):
+        x = rnd.uniform(18, c.w * 0.27)
+        y = rnd.uniform(150, c.h * low)
+        if x > c.w * 0.27 * (1 - (y - 150) / (c.h * low)) + 40:
+            continue
+        size = rnd.uniform(16, 40)
+        turn = rnd.uniform(0, math.pi)
+        col = bb.rgb(rnd.choice(LEAVES)) + (rnd.randint(150, 235),)
+        for cx in (x, c.w - x):
+            t = turn if cx == x else math.pi - turn
+            pts = []
+            for k in range(24):
+                a = 2 * math.pi * k / 24
+                # A leaf: pointed at both ends, widest in the middle.
+                px, py = math.cos(a) * size, math.sin(a) ** 3 * size * 0.42
+                pts.append(((cx + px * math.cos(t) - py * math.sin(t)) * s,
+                            (y + px * math.sin(t) + py * math.cos(t)) * s))
+            d.polygon(pts, fill=col)
+    c.im.paste(layer, (0, 0), layer)

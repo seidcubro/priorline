@@ -47,6 +47,7 @@ from zoneinfo import ZoneInfo
 
 import build_brand as bb
 import post_art as art
+import post_depth as deep
 
 API = "https://api.priorline.io/api/v1"
 ET = ZoneInfo("America/New_York")
@@ -143,9 +144,14 @@ def record_line(r, brief=False):
     return out
 
 
-def as_pick(e, games):
+def as_pick(e, games, who=None):
     """One board row, reduced to what a post states and a receipt grades."""
     t = kick(e)
+    who = who or {}
+    team = who.get("team") or (games[0].get("team") if games else None)
+    sides = [deep.NICK.get(short(e["away_team"])), deep.NICK.get(short(e["home_team"]))]
+    mine = deep.SAME.get(team, team)
+    opponent = next((x for x in sides if x and x != mine), None) if mine in sides else None
     col = STAT.get(e["market_code"])
     form = [float(g[col]) for g in games[:WINDOW] if g.get(col) is not None]
     return {
@@ -157,7 +163,8 @@ def as_pick(e, games):
         "event_id": e["event_id"],
         "game": f"{short(e['away_team'])} at {short(e['home_team'])}",
         "kickoff": t.isoformat(), "form": form,
-        "team": games[0].get("team") if games else None,
+        "team": team, "opponent": opponent,
+        "gsis": who.get("external_id"), "position": who.get("position"),
         "headshot": e.get("headshot"),
         "last_played": str(games[0]["game_date"])[:10] if games else None,
         "last_week": games[0].get("week") if games else None,
@@ -165,6 +172,7 @@ def as_pick(e, games):
     }
 
 
+THEME = [None]
 TIER_RANK = ["elite", "strong", "medium", "small"]
 LEAD = []
 
@@ -246,7 +254,13 @@ def hydrate(api, rows, limit):
             print(f"  left off, as asked: {e['player_name']}")
             continue
         games = get(api, f"players/{e['player_id']}/games", limit=WINDOW)["games"]
-        p = as_pick(e, games)
+        try:
+            who = get(api, f"players/{e['player_id']}")["player"]
+        except Exception:
+            who = {}
+        p = as_pick(e, games, who)
+        season = max((g.get("season") or 0) for g in games) if games else kick(e).year
+        p["tiles"], p["says"] = deep.depth(p, season)
         if p["last_played"]:
             idle = (kick(e).date() - dt.date.fromisoformat(p["last_played"])).days
             if idle > 21:
@@ -704,6 +718,14 @@ def recent(p, n):
     return [num(v) for v in vals], [on_side(p, v) for v in vals], vals
 
 
+def fact(p):
+    """The opponent's number for this pick, as one line of capitals."""
+    if len(p.get("tiles") or []) < 3:
+        return ""
+    v, a, b = p["tiles"][2]
+    return f"{v} {a} {b}".replace("  ", " ").strip()
+
+
 def art_cover(path, label, hook, more):
     """The first slide: the player, his team's colour, the call."""
     w, h = 1080, 1350
@@ -712,6 +734,7 @@ def art_cover(path, label, hook, more):
     white = bb.rgb(art.WHITE)
     dim = bb.mix(art.NIGHT, art.WHITE, 0.62)
     c = art.ground(w, h, team)
+    art.season(c, THEME[0])
     art.brand(c, 46, white)
     art.mid(c, 126, label, bb.CAPS, 20, white, track=0.16, room=w - 160)
     art.place(c, art.headshot(hook.get("headshot")), w / 2, 156, 530)
@@ -719,51 +742,76 @@ def art_cover(path, label, hook, more):
     art.mid(c, 884, call(hook).upper(), bb.SERIF_BLACK, 172, accent, room=w - 150)
     art.mid(c, 934, UNIT[hook["market_code"]].upper(), bb.CAPS, 28, white, track=0.32)
     shown, hits, _ = recent(hook, 3)
+    run = len(against(hook)) >= 3
     if shown:
-        art.tiles(c, w / 2, 972, shown, hits, accent, size=88)
+        art.tiles(c, w / 2, 958, shown, hits, accent, size=88)
         said_ = f"HIS LAST {COUNT[len(shown)].upper()} GAMES"
-        if len(against(hook)) >= 3:
+        if run:
             said_ += f". I STILL SAY {hook['side'].upper()}."
-        art.mid(c, 1098, said_, bb.CAPS, 19, dim, track=0.16)
-    art.pill(c, w / 2, 1132, "SEE WHY" if len(against(hook)) >= 3 else "SWIPE",
-             accent, 22)
+        art.mid(c, 1082, said_, bb.CAPS, 19, dim, track=0.16)
+    if fact(hook):
+        art.mid(c, 1120, fact(hook), bb.CAPS, 21, accent, track=0.12, room=w - 150)
+    art.pill(c, w / 2, 1142, "SEE WHY" if run or fact(hook) else "SWIPE", accent, 21)
     if more:
-        art.mid(c, 1226, more[0].upper(), bb.CAPS, 17, dim, track=0.16)
+        art.mid(c, 1226, more[0].upper(), bb.CAPS, 16, dim, track=0.16)
     art.notice(c, dim)
     c.save(path)
 
 
 def art_pick(path, p):
-    """One pick: the player, the call, and his last ten games as the reason."""
+    """One pick: the player, the call, the numbers under it, his last ten games."""
     w, h = 1080, 1350
     team = p.get("team")
     accent = bb.rgb(art.colours(team)[1])
     white = bb.rgb(art.WHITE)
     dim = bb.mix(art.NIGHT, art.WHITE, 0.62)
-    c = art.ground(w, h, team, fall=0.58, glow=(0.5, 0.26))
+    cards = p.get("tiles") or []
+    c = art.ground(w, h, team, fall=0.56, glow=(0.5, 0.25))
+    art.season(c, THEME[0], low=0.36)
     t = dt.datetime.fromisoformat(p["kickoff"])
     art.brand(c, 46, white)
     art.mid(c, 126, f"{p['game'].upper()}    {clock(t)}", bb.CAPS, 20, white,
             track=0.16, room=w - 160)
-    art.place(c, art.headshot(p.get("headshot")), w / 2, 156, 430)
-    art.mid(c, 632, p["player_name"], bb.SERIF, 54, white, room=w - 200)
-    art.mid(c, 774, call(p).upper(), bb.SERIF_BLACK, 150, accent, room=w - 150)
-    art.mid(c, 820, UNIT[p["market_code"]].upper(), bb.CAPS, 26, white, track=0.32)
-    cols = (("TIER", p["tier"].capitalize()), ("OUR PRIOR", f"{p['prior']:.1f}"),
-            ("THEIR LINE", f"{p['line']:.1f}"), ("PRICE", price(p["price"])))
-    step = 210
-    x = w / 2 - step * (len(cols) - 1) / 2
-    for lab, val in cols:
-        c.text(x, 884, lab, bb.CAPS, 16, dim, track=0.14, align="c")
-        c.text(x, 932, val, bb.SERIF, 40, white, align="c")
-        x += step
+    tall = 380 if cards else 430
+    art.place(c, art.headshot(p.get("headshot")), w / 2, 152, tall)
+    y = 152 + tall + 38
+    art.mid(c, y, p["player_name"], bb.SERIF, 50, white, room=w - 200)
+    y += 134
+    art.mid(c, y, call(p).upper(), bb.SERIF_BLACK, 142, accent, room=w - 150)
+    y += 44
+    art.mid(c, y, UNIT[p["market_code"]].upper(), bb.CAPS, 25, white, track=0.32)
+    y += 46
+    art.mid(c, y, f"{p['tier'].upper()}      OUR NUMBER {p['prior']:.1f}      "
+            f"THEIR LINE {num(p['line'])}      PRICE {price(p['price'])}",
+            bb.CAPS, 17, dim, track=0.14)
+    y += 30
+    if cards:
+        gap = 18
+        cw = (w - 170 - gap * (len(cards) - 1)) / len(cards)
+        x = 85
+        edge = bb.mix(art.NIGHT, art.WHITE, 0.3)
+        for v, a, b in cards:
+            c.rect(x, y, cw, 156, bb.mix(art.NIGHT, art.WHITE, 0.07))
+            c.frame(x, y, cw, 156, edge, t=1.5)
+            c.rect(x, y, cw, 5, accent)
+            c.text(x + cw / 2, y + 84, v, bb.SERIF_BLACK, 62, white, align="c")
+            for i, lab in enumerate((a, b)):
+                size = 13.5
+                wide = c.width(lab, bb.CAPS, size, 0.1)
+                if wide > cw - 22:
+                    size *= (cw - 22) / wide
+                c.text(x + cw / 2, y + 114 + i * 22, lab, bb.CAPS, size,
+                       white if i == 0 else accent, track=0.1, align="c")
+            x += cw + gap
+        y += 156 + 34
     shown, hits, vals = recent(p, WINDOW)
     if vals:
-        art.bars(c, w / 2, 984, 700, 150, vals, hits, p["line"], accent,
+        tall = 1160 - y - 30 if cards else 150
+        art.bars(c, w / 2, y + 30, 700, tall, vals, hits, p["line"], accent,
                  f"LINE {num(p['line'])}")
-        art.mid(c, 1188, said(p), bb.SANS_BOLD, 28, white)
+        art.mid(c, 1204, said(p), bb.SANS_BOLD, 27, white)
         if before(p):
-            art.mid(c, 1226, before(p), bb.SANS, 23, dim)
+            art.mid(c, 1238, before(p), bb.SANS, 22, dim)
     art.notice(c, dim)
     c.save(path)
 
@@ -820,7 +868,10 @@ def art_x(path, label, hook, others):
         if len(against(hook)) >= 3:
             said_ += f". I STILL SAY {hook['side'].upper()}."
         art.mid(c, 696, said_, bb.CAPS, 19, dim, track=0.16, cx=cx)
-    if others:
+    if fact(hook):
+        art.mid(c, 748, fact(hook), bb.CAPS, 21, accent, track=0.12, room=820,
+                cx=cx)
+    elif others:
         art.mid(c, 748, f"PLUS {COUNT[len(others)].upper()} MORE PICK"
                 f"{'S' if len(others) > 1 else ''} ON THE CARD", bb.CAPS, 19,
                 accent, track=0.16, cx=cx)
@@ -891,7 +942,70 @@ def write_run_captions(out, lead, picks, r, tag):
         "INSTAGRAM", "---------", ig, ""]), encoding="utf-8")
 
 
+def deep_captions(out, lead, picks, r, tag):
+    """Captions that carry the numbers under each pick, not only his last ten.
+
+    The first line is the call and the opponent's number, because that line
+    is all either network shows before a tap. On X the address goes in a
+    reply: a post that sends people off the site is shown to fewer of them.
+    """
+    hook, rest = picks[0], picks[1:]
+    mine = deep.ABBR.get(deep.SAME.get(hook.get("team"), hook.get("team")), "")
+    where = re.sub(r"(sun|mon|tues|wednes|thurs|fri|satur)day",
+                   lambda m: m.group(0).capitalize(), lead.rstrip("."))
+    where = where[0].upper() + where[1:]
+    head = f"{hook['player_name']} {call(hook).lower()} {UNIT[hook['market_code']]}."
+    if len(against(hook)) >= 3:
+        head = (f"{hook['player_name']}: {run_words(hook)}.\n\n"
+                f"I still say {call(hook).lower()} {UNIT[hook['market_code']]}.")
+    why = hook["says"][-1]
+    more = (f"{COUNT[len(rest)]} more pick{'s' if len(rest) > 1 else ''} on "
+            f"the card. " if rest else "")
+    other = "over" if hook["side"] == "under" else "under"
+    x = "\n".join([
+        head, "", why, "",
+        f"{where}. {more}Every one gets graded in public, win or lose.", "",
+        f"{hook['side'].capitalize()} or {other}?", "",
+        f"{tag} {'#' + mine if mine else ''}".strip()])
+    if len(x) > 280:
+        x = "\n".join([head, "", why, "",
+                       f"{more}Graded in public, win or lose.", "",
+                       f"{hook['side'].capitalize()} or {other}?", "",
+                       f"{tag} {'#' + mine if mine else ''}".strip()])
+    reply = "\n".join([
+        "The numbers under every pick on the card, and the whole graded "
+        "record: priorline.io", "", LEGAL])
+    blocks = []
+    for p in picks:
+        blocks += [f"{p['player_name'].upper()}: {call(p).lower()} "
+                   f"{UNIT[p['market_code']]} ({price(p['price'])})",
+                   " ".join(p.get("says") or []) + (f" {said(p)}." if p["form"] else ""),
+                   ""]
+    ig = "\n".join([
+        head, "", why, "", f"{where}. Every number here comes from every play "
+        "of this season, and the three I show for a market are fixed, so I "
+        "cannot pick the ones that flatter a call.", "",
+        *blocks, record_line(r), "",
+        "Graded in public, win or lose. Send this to the "
+        f"{mine + ' ' if mine else ''}fan who will disagree.", "",
+        "Full board and the whole record at priorline.io (link in bio).", "",
+        LEGAL, "",
+        " ".join(dict.fromkeys(
+            [t for t in (tag, *("#" + n for n in hook["game"].split(" at ")),
+                         "#NFLProps", "#PlayerProps") if t])),
+    ])
+    if len(x) > 280:
+        print(f"  the X caption is {len(x)} characters, over the 280 limit: trim it")
+    bar = "-" * 30
+    (out / "caption.txt").write_text("\n".join([
+        "X", "-", x, "", "",
+        "X, AS A REPLY TO YOUR OWN POST", bar, reply, "", "",
+        "INSTAGRAM", "---------", ig, ""]), encoding="utf-8")
+
+
 def pregame_captions(out, lead, picks, r, tag):
+    if picks[0].get("says"):
+        return deep_captions(out, lead, picks, r, tag)
     if len(against(picks[0])) >= 3:
         return write_run_captions(out, lead, picks, r, tag)
     brief = [f"{p['player_name']} {call(p).lower()} {TIGHT[p['market_code']]}"
@@ -1074,7 +1188,7 @@ def main():
     ap.add_argument("--to", help="receipt only: the last day of the range")
     ap.add_argument("--team", help="game only: either team's name, e.g. Steelers")
     ap.add_argument("--player", help="pick only: the player's name")
-    ap.add_argument("--players", help="game only: the card chosen by hand, "
+    ap.add_argument("--players", help="game or slate: the card chosen by hand, "
                     "names separated by commas, in slide order")
     ap.add_argument("--lead", help="whose name goes on the cover, if not "
                     "the one it would choose")
@@ -1085,11 +1199,17 @@ def main():
                     "leaves out a morning game)")
     ap.add_argument("--max", type=int, default=5, help="picks on a carousel")
     ap.add_argument("--week", help="week number, if the guess is wrong")
+    ap.add_argument("--to-hour", type=int, default=19,
+                    help="slate only: kickoffs before this hour, Eastern (24 "
+                    "takes the night game too)")
+    ap.add_argument("--theme", choices=["thanksgiving"],
+                    help="dress the slides for the day")
     ap.add_argument("--no-photos", action="store_true",
                     help="draw the slides without the players' photographs")
     a = ap.parse_args()
     if a.no_photos:
         art.PHOTOS[0] = False
+    THEME[0] = a.theme
     if a.lead:
         LEAD.append(a.lead.strip().lower())
     if a.skip:
@@ -1103,9 +1223,17 @@ def main():
     if a.kind == "slate":
         day = dt.date.fromisoformat(a.date)
         # The night game gets a post of its own.
+        named = [n.strip() for n in a.players.split(",")] if a.players else None
         rows = board(a.api, lambda e: kick(e).date() == day
-                     and a.from_hour <= kick(e).hour < 19)
+                     and a.from_hour <= kick(e).hour < a.to_hour,
+                     tiers=("elite", "strong", "medium") if named else ("elite",),
+                     players=named)
         name = day.strftime("%A")
+        if a.theme == "thanksgiving":
+            pregame(a.api, rows, "THANKSGIVING", "Thanksgiving.",
+                    f"{day.isoformat()}-thanksgiving", a.max, "#Thanksgiving",
+                    a.week)
+            return
         pregame(a.api, rows, name.upper(), f"{name}'s slate.",
                 f"{day.isoformat()}-{name.lower()}-slate", a.max,
                 f"#NFL{name}", a.week)

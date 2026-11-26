@@ -32,6 +32,7 @@ import pandas as pd
 import spread_calibration as sc
 import thin_sample
 import vacated_volume as vv
+import qb_rushing
 from sqlalchemy import bindparam, create_engine, text
 
 ARTIFACT_DIR = Path(os.getenv("ARTIFACT_DIR", "/artifacts"))
@@ -454,6 +455,10 @@ def main():
                         qf = vacated_vol.factor(r.player_id, market_code, mid)
                         if qf != 1.0:
                             raw = {q: v * qf for q, v in raw.items()}
+                # A quarterback's rushing range, centred on his middle game and
+                # not on his average, at the same place the edge builder does
+                # it. See qb_rushing.py.
+                raw = qb_rushing.recentre(raw, pred, r.position, market_code)
                 cal = bp.calibrated_quantiles(raw, quant.get("calibration"))
                 qs = {q: v * factor for q, v in cal.items()}
 

@@ -36,6 +36,7 @@ import fit_display_probability as display_prob
 import numpy as np
 import pandas as pd
 import vacated_volume as vv
+import qb_rushing
 import spread_calibration as spread
 import thin_sample
 from odds_markets import ALL_ODDS_TO_MARKET
@@ -2111,6 +2112,10 @@ def main():
                 qf = vacated_vol.factor(frow.get("player_id"), market_code, mid)
                 if qf != 1.0:
                     qp = {q: v * qf for q, v in qp.items()}
+            # A quarterback's rushing range, centred on his middle game and not
+            # on his average. See qb_rushing.py.
+            qp = qb_rushing.recentre(qp, model_projection, frow.get("position"),
+                                     market_code)
             # This season's level, where measuring it walk-forward picked more
             # winners. Last, so it lands on the range every other correction
             # has already shaped, and before P(over) is read, so the side, the

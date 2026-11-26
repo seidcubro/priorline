@@ -1195,8 +1195,19 @@ def check_no_dead_features(engine):
                  f"them, so they train as a constant zero")
         if constant:
             constant_total += len(constant)
-            fail(f"{r.code}: {sorted(constant)} never vary, which a model "
-                 f"cannot learn from")
+            # Only a retrain can clear this, so only a retrain fails on it.
+            #
+            # train.py drops a column that never varies, so the model stops
+            # expecting it the next time it is fitted. Until then nothing an
+            # hourly run does can change the answer, and failing there means a
+            # page every hour until Tuesday for something that is not getting
+            # worse: the model is still handed the value it was trained on.
+            # It happened on 26 November 2026. A passing-only refresh pruned
+            # the feature rows for players who are not quarterbacks, which is
+            # what the snap floor is for, and is_qb became 1 on every row the
+            # passing yards model has left.
+            fail_on_retrain(f"{r.code}: {sorted(constant)} never vary, which a "
+                            f"model cannot learn from")
 
     if not absent_total and not constant_total:
         print(f"  OK: every feature across {checked} models is present and varies")

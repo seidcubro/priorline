@@ -996,6 +996,372 @@ def render(path, p, r, theme, occasion, handle, voice, season, own):
     return total
 
 
+# ------------------------------------------------------------- the receipt
+#
+# The other video: after the games, what was posted and how it came in. The
+# wins are shown with the reason we had, and a loss gets the same treatment,
+# with what the game did that we did not see coming. It goes out win or lose.
+
+RED = bb.rgb(bp.LOSS)
+
+
+def word_sprite(word, colour):
+    im = Image.new("RGBA", (W * 2, 420), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    text(d, W, 320, word, bb.SERIF_BLACK, 300, colour, room=W * 2 - 300)
+    return im
+
+
+def draw_score(d, t, picks, score, label, accent, white, dim):
+    won, n = score
+    text(d, W / 2, 1010, label, bb.CAPS, 26, white, at(t, 0.2, 0.3), track=0.18,
+         room=W - 140)
+    k = pop(t, 0.3, 0.5)
+    text(d, W / 2, 1230, f"{won} OF {n}", bb.SERIF_BLACK, 220 * k, accent, room=W - 160)
+    text(d, W / 2, 1296, "POSTED PICKS WERE RIGHT", bb.CAPS, 32, white, at(t, 0.7, 0.3),
+         track=0.26)
+    size, gap = 86, 22
+    x = W / 2 - (len(picks) * size + (len(picks) - 1) * gap) / 2
+    for i, p in enumerate(picks):
+        k = pop(t, 1.0 + i * 0.14, 0.4)
+        if k > 0:
+            s = size * k
+            cx, cy = x + size / 2, 1386
+            if p["hit"]:
+                box(d, cx - s / 2, cy - s / 2, cx + s / 2, cy + s / 2, col(accent))
+                text(d, cx, cy + 18 * k, "W", bb.SERIF_BLACK, 50 * k, bb.rgb(art.NIGHT))
+            else:
+                d.rectangle([cx - s / 2, cy - s / 2, cx + s / 2, cy + s / 2],
+                            outline=col(RED), width=5)
+                text(d, cx, cy + 18 * k, "L", bb.SERIF_BLACK, 50 * k, RED)
+        x += size + gap
+
+
+def draw_result(frame, d, t, p, accent, white, dim, sprite, when, day):
+    """What we said, his last ten, and then the game itself dropping in beside them."""
+    won = bool(p["hit"])
+    shade = accent if won else RED
+    kicker(d, t, "WHAT WE SAID" if won else "THE ONE WE LOST", shade, dim)
+    k = pop(t, 0.25, 0.45)
+    text(d, W / 2, TOP + 168, f"{bp.call(p).upper()} {bp.UNIT[p['market_code']].upper()}",
+         bb.SERIF_BLACK, 78 * k, white, room=W - 150)
+    vals = list(reversed(p["form"][:bp.WINDOW]))
+    x0, y0, w, h = 110, TOP + 250, 700, 250
+    top = max(max(vals + [p["actual"] or 0]), p["line"]) * 1.2 or 1.0
+    gap = w * 0.03
+    bw = (w - gap * (len(vals) - 1)) / max(len(vals), 1)
+    off = bb.mix(art.NIGHT, art.WHITE, 0.5)
+    for i, v in enumerate(vals):
+        k = pop(t, 0.45 + i * 0.05, 0.35)
+        if k <= 0:
+            continue
+        bh = max(8.0, h * v / top) * k
+        bx = x0 + i * (bw + gap)
+        if bp.on_side(p, v):
+            box(d, bx, y0 + h - bh, bx + bw, y0 + h, col(bb.mix(art.NIGHT, art.WHITE, 0.45)))
+        else:
+            d.rectangle([bx, y0 + h - max(bh, 8), bx + bw, y0 + h], outline=col(off), width=4)
+    ly = y0 + h - h * p["line"] / top
+    box(d, x0 - 20, ly - 2, x0 - 20 + (W - 2 * x0 + 40) * at(t, 0.4, 0.7), ly + 2, col(white))
+    text(d, x0, ly - 14, f"LINE {bp.num(p['line'])}", bb.CAPS, 21, white, at(t, 1.0, 0.3),
+         track=0.12, anchor="l")
+    text(d, x0 + w / 2, y0 + h + 40, "HIS LAST TEN", bb.CAPS, 20, dim, at(t, 0.8, 0.3),
+         track=0.16)
+    # The game: one wide bar, dropped from above as its number is said.
+    gx, gw = x0 + w + 46, 120
+    u = t - when
+    if u > 0:
+        k = back(u / 0.4, 2.2)
+        bh = max(10.0, h * (p["actual"] or 0) / top)
+        drop = (1 - clamp(u / 0.25)) * 260
+        box(d, gx, y0 + h - bh * min(k, 1.15) - drop, gx + gw, y0 + h - drop, col(shade))
+        text(d, gx + gw / 2, y0 + h - bh - 22 - drop, bp.num(p["actual"]), bb.SERIF_BLACK,
+             72 * max(k, 0.3), shade)
+        text(d, gx + gw / 2, y0 + h + 40, day.upper()[:3], bb.CAPS, 20, shade, 1.0, track=0.16)
+        v = u - 0.5
+        if v > 0:
+            k = 2.0 - 1.0 * back(v / 0.3, 2.4)
+            size = (max(2, int(sprite.width * k * 0.36)), max(2, int(sprite.height * k * 0.36)))
+            s = sprite.resize(size, Image.LANCZOS)
+            frame.paste(s, (int(W / 2 - s.width / 2), int(TOP + 590 - s.height * 0.6)), s)
+
+
+def draw_why(d, t, p, f, accent, white, dim, day):
+    """The game in three numbers: what he had been getting, what he got, and
+    what his team did with the ball."""
+    won = bool(p["hit"])
+    shade = accent if won else RED
+    kicker(d, t, "WHY IT HIT" if won else "WHY IT MISSED", shade, dim)
+    noun = f["kind"].upper()
+    tiles = [(f"{f['before'] * at(t, 0.3, 0.8):.1f}", f"{noun} A GAME", "COMING IN", white),
+             (f"{f['got'] * at(t, 0.6, 0.8):.0f}", f"{noun}", day.upper(), shade),
+             (f"{f['throws'] * at(t, 0.9, 0.8):.0f}", f"{f['team'].upper()} THROWS",
+              f"AND {f['runs']} RUNS", white)]
+    cw, gap = 296, 20
+    x = W / 2 - (cw * 3 + gap * 2) / 2
+    for i, (v, a, b, c) in enumerate(tiles):
+        k = pop(t, 0.3 + i * 0.3, 0.45)
+        if k > 0:
+            hh = 330 * k
+            cy = TOP + 330
+            rrect(d, [x, cy - hh / 2, x + cw, cy + hh / 2], radius=16,
+                  fill=col(bb.rgb(art.NIGHT), 0.85))
+            box(d, x + 16, cy - hh / 2, x + cw - 16, cy - hh / 2 + 8, col(c))
+            text(d, x + cw / 2, cy + 36, v, bb.SERIF_BLACK, 130 * k, c, room=cw - 30)
+            text(d, x + cw / 2, cy + 96, a, bb.CAPS, 21, white, at(t, 0.5 + i * 0.3, 0.3),
+                 track=0.1, room=cw - 26)
+            text(d, x + cw / 2, cy + 126, b, bb.CAPS, 21, shade, at(t, 0.5 + i * 0.3, 0.3),
+                 track=0.1, room=cw - 26)
+        x += cw + gap
+    if f["kind"] == "targets":
+        text(d, W / 2, TOP + 600, f"HE CAUGHT {f['made']} OF {f['got']}", bb.SERIF_BLACK,
+             64 * pop(t, 1.5, 0.45), white, room=W - 200)
+
+
+def draw_rows(d, t, picks, starts, accent, white, dim):
+    """The rest of the card, a line a pick, each landing as it is named."""
+    kicker(d, t, "ALSO RIGHT" if all(p["hit"] for p in picks) else "THE REST", accent, dim)
+    row = min(170, 560 / max(len(picks), 1))
+    y = TOP + 110
+    for p, s in zip(picks, starts):
+        k = pop(t, s, 0.4)
+        if k > 0:
+            slide = (1 - min(k, 1)) * 120
+            text(d, 110 - slide, y + 56, p["player_name"], bb.SERIF, 54, white,
+                 min(k, 1), anchor="l", room=W - 440)
+            text(d, 110 - slide, y + 100,
+                 f"{bp.call(p)} {bp.UNIT[p['market_code']]}. Finished on {bp.num(p['actual'])}.",
+                 bb.SANS, 27, dim, min(k, 1), anchor="l")
+            word = "WON" if p["hit"] else "(LOST)"
+            shade = accent if p["hit"] else RED
+            ww = 190 * k
+            if p["hit"]:
+                box(d, W - 110 - ww, y + 30, W - 110, y + 30 + 66 * k, col(shade))
+                text(d, W - 110 - ww / 2, y + 76, word, bb.CAPS, 30 * k, bb.rgb(art.NIGHT),
+                     track=0.14)
+            else:
+                d.rectangle([W - 110 - 190, y + 30, W - 110, y + 96], outline=col(shade), width=4)
+                text(d, W - 110 - 95, y + 76, word, bb.CAPS, 30, shade, track=0.14)
+        y += row
+
+
+def receipt_script(picks, score, where, day, handle, season):
+    """Lead with the best-known win, run through the rest, then every loss in
+    full, because a receipt that only shows the wins is an advert."""
+    won, n = score
+    wins = sorted([p for p in picks if p["hit"]], key=lambda p: -(p.get("star") or 0))
+    lost = [p for p in picks if p["hit"] is False]
+    parts = [("score", None, None, f"{day} night, {where}. We posted "
+              f"{bp.COUNT[n].lower()} picks, and {bp.COUNT[won].lower()} of them hit! "
+              f"Here's the receipt, and here's why.")]
+    if wins:
+        p = wins[0]
+        unit = SAY_UNIT[p["market_code"]]
+        f = deep.aftermath(p, season)
+        say = f"We took {p['player_name']} {p['side']} {bp.num(p['line'])} {unit}"
+        if len(bp.against(p)) >= 3:
+            say += f", right after he went {bp.run_words(p).split(' in his')[0]}"
+        say += f". Our number was {p['prior']:.1f}."
+        run = bp.against(p)
+        rest = p["form"][len(run):]
+        if len(run) >= 3 and len(rest) >= 4:
+            hit = sum(1 for v in rest if bp.on_side(p, v))
+            say += (f" And before that run, he'd been {p['side']} in {hit} of "
+                    f"{len(rest)}.")
+        say += f" {day}, he finished with {bp.num(p['actual'])}!"
+        parts.append(("result", p, f, say))
+    rest = wins[1:]
+    if rest:
+        say = " ".join(f"{p['player_name']}, {p['side']} {bp.num(p['line'])}: he finished "
+                       f"with {bp.num(p['actual'])}." for p in rest)
+        parts.append(("rows", rest, None, "The rest of the card. " + say))
+    for p in lost:
+        unit = SAY_UNIT[p["market_code"]]
+        f = deep.aftermath(p, season)
+        parts.append(("result", p, f, f"And the one we got wrong. {p['player_name']}, "
+                      f"{p['side']} {bp.num(p['line'])} {unit}. He finished with "
+                      f"{bp.num(p['actual'])}."))
+        if f.get("kind"):
+            say = (f"Here's what happened. He'd been getting {f['before']:.1f} {f['kind']} "
+                   f"a game. {day}, he got {f['got']}")
+            if f["kind"] == "targets":
+                say += f", and caught {'all' if f['made'] == f['got'] else f['made']} of them"
+            say += (f". The {f['team']} threw it {f['throws']} times and ran it just "
+                    f"{f['runs']}." if f["throws"] > f["runs"] * 1.8 else
+                    f". The {f['team']} threw it {f['throws']} times and ran it {f['runs']}.")
+            say += " We didn't see that coming, and it goes in the record as a loss."
+            parts.append(("why", p, f, say))
+    said = re.sub(r"\bio$", "I O", " ".join(handle.replace("priorline", "prior line ").split()))
+    parts.append(("end", None, None, "We show the losses too. Every pick, graded in "
+                  f"public. See the whole record at prior line dot I O, and follow "
+                  f"{said} on Instagram. PriorLine. Our prior. Their line."))
+    return parts
+
+
+def render_receipt(path, picks, score, label, where, day, r, handle, voice, season, own):
+    parts = receipt_script(picks, score, where, day, handle, season)
+    lead = max([p for p in picks if p["hit"]] or picks, key=lambda p: p.get("star") or 0)
+    with tempfile.TemporaryDirectory() as tmp:
+        voice_track, cuts, clock, timed, fx = [], [], 0.0, [], []
+        for i, (kind, data, f, say) in enumerate(parts):
+            raw, marks = speak(say, tmp, i, voice) if voice else silent(say)
+            pad = 1.6 if kind == "end" else 0.9 if kind == "result" else 0.35
+            dur = len(raw) / RATE + pad
+            voice_track.append(np.concatenate([raw, np.zeros(int(RATE * pad))]))
+            mark = None
+            low = [(m[0], m[2].lower().strip(".,!?:")) for m in marks]
+            if kind == "result":
+                hits = [t0 for t0, w in low if w in ("finished", "with")]
+                mark = (hits[-1] + 0.25) if hits else dur * 0.7
+                good = bool(data["hit"])
+                fx.append((snd.impact() if good else snd.kick() * 1.4, clock + mark + 0.5, 0.9))
+            elif kind == "rows":
+                mark = []
+                for p in data:
+                    last = p["player_name"].split()[-1].lower().strip(".")
+                    hits = [t0 for t0, w in low if w == last]
+                    mark.append(hits[0] if hits else 0.5 + 1.5 * len(mark))
+                    fx.append((snd.ding(), clock + mark[-1] + 0.3, 0.3))
+            elif kind == "end":
+                hits = [t0 for t0, w in low if w == "our"]
+                mark = hits[-1] if hits else dur * 0.7
+            if i:
+                fx.append((snd.whoosh(), clock - 0.05, 0.55))
+            timed.append((kind, data, f, clock, dur, chunks(marks), mark))
+            clock += dur
+            cuts.append(clock)
+        total = clock
+        looks = {}
+
+        def look(p):
+            key = p["player_name"]
+            if key not in looks:
+                (A, A2), (B, B2), accent, white, dim = grounds(p, None)
+                shot = art.headshot(p.get("headshot"))
+                looks[key] = {"A": (A, A2), "B": (B, B2), "accent": accent,
+                              "white": white, "dim": dim, "band": stripes(accent),
+                              "big": cutout(shot, 600, accent),
+                              "small": cutout(shot, 330, accent),
+                              "won": word_sprite("WON", accent),
+                              "lost": word_sprite("(LOST)", RED)}
+            return looks[key]
+
+        E = Image.new("RGB", (W, H), bb.rgb(bb.CLOTH))
+        E2 = ImageEnhance.Brightness(E).enhance(1.5)
+        gold = bb.rgb(bb.GOLD)
+        silent_mp4 = Path(tmp) / "v.mp4"
+        out = imageio_ffmpeg.write_frames(
+            str(silent_mp4), (W, H), fps=FPS, codec="libx264", quality=7,
+            pix_fmt_in="rgb24", pix_fmt_out="yuv420p", macro_block_size=8,
+            ffmpeg_log_level="error")
+        out.send(None)
+        try:
+            for n in range(int(total * FPS)):
+                t = n / FPS
+                i = next(j for j, c in enumerate(cuts) if t < c)
+                kind, data, f, start, dur, lines, mark = timed[i]
+                u = t - start
+                beat = snd.pulse(t)
+                who = data if kind in ("result", "why") else lead
+                L = look(who)
+                accent, white, dim = L["accent"], L["white"], L["dim"]
+                if kind == "end":
+                    frame = Image.blend(E, E2, 0.25 * beat)
+                    if u < 0.3:
+                        frame = Image.blend(Image.blend(*L["B"], 0.5 * beat), frame, at(u, 0, 0.3))
+                else:
+                    pair = L["A"] if kind == "score" else L["B"]
+                    frame = Image.blend(pair[0], pair[1], 0.55 * beat)
+                    off = int((t * 46) % 200)
+                    piece = L["band"].crop((0, off, W, off + H))
+                    frame.paste(piece, (0, 0), piece)
+                    src, hgt, top_y = (L["big"], 600, 330) if kind == "score" else (L["small"], 330, 292)
+                    if src is not None:
+                        k = pop(u, 0.0, 0.45)
+                        s = max(0.05, k) * (1 + 0.022 * beat)
+                        hh = int(hgt * s)
+                        ww = int(src.width * hh / src.height)
+                        im = src.resize((ww, hh), Image.BILINEAR)
+                        frame.paste(im, (int(W / 2 - ww / 2),
+                                         int(top_y + (hgt - hh) / 2 + 7 * math.sin(t * 2.4))), im)
+                d = ImageDraw.Draw(frame, "RGBA")
+                if kind in ("result", "why", "rows"):
+                    name = who["player_name"] if kind != "rows" else label
+                    text(d, W / 2, 672, name, bb.SERIF, 50, white, at(u, 0.1, 0.3), room=W - 200)
+                    if kind != "rows":
+                        text(d, W / 2, 708, who["game"].upper(), bb.CAPS, 21, accent,
+                             at(u, 0.1, 0.3), track=0.24)
+                if kind == "score":
+                    draw_score(d, u, picks, score, label, accent, white, dim)
+                elif kind == "result":
+                    draw_result(frame, d, u, data, accent, white, dim,
+                                L["won"] if data["hit"] else L["lost"], mark, day)
+                elif kind == "why":
+                    draw_why(d, u, data, f, accent, white, dim, day)
+                elif kind == "rows":
+                    draw_rows(d, u, data, mark, accent, white, dim)
+                elif kind == "end":
+                    draw_end(d, u, r, handle, mark)
+                if i and kind != "end":
+                    swipe(d, u, RED if kind in ("result", "why") and not data["hit"] else accent,
+                          white)
+                if kind != "end":
+                    captions(d, u, lines, RED if kind in ("result", "why")
+                             and not data["hit"] else accent)
+                progress(d, t, cuts, gold if kind == "end" else accent)
+                if kind == "result" and 0 <= u - mark - 0.5 < 0.3:
+                    s = (u - mark - 0.5) / 0.3
+                    frame = ImageChops.offset(frame, int(16 * math.sin(s * 40) * (1 - s)),
+                                              int(10 * math.cos(s * 34) * (1 - s)))
+                out.send(frame.tobytes())
+        finally:
+            out.close()
+        sound = snd.mix(np.concatenate(voice_track), total, fx, own)
+        wav = Path(tmp) / "a.wav"
+        with wave.open(str(wav), "wb") as fh:
+            fh.setnchannels(1)
+            fh.setsampwidth(2)
+            fh.setframerate(RATE)
+            fh.writeframes((np.clip(sound, -1, 1) * 32000).astype(np.int16).tobytes())
+        subprocess.run([FFMPEG, "-y", "-loglevel", "error", "-i", str(silent_mp4),
+                        "-i", str(wav), "-c:v", "copy", "-c:a", "aac", "-b:a",
+                        "192k", "-shortest", str(path)], check=True)
+    path.with_suffix(".txt").write_text(
+        "\n\n".join(p[3] for p in parts) + "\n", encoding="utf-8")
+    return total
+
+
+def receipt_video(a, folder, own):
+    """Grade the folder's posted.json and film how it came in."""
+    data = json.loads((folder / "posted.json").read_text(encoding="utf-8"))
+    picks = []
+    for p in data["picks"]:
+        p = bp.grade(a.api, p)
+        if p["actual"] is None or p["hit"] is None:
+            print(f"  no result yet for {p['player_name']}, left out")
+            continue
+        if not p.get("gsis"):
+            who = bp.get(a.api, f"players/{p['player_id']}")["player"]
+            p["gsis"], p["position"] = who.get("external_id"), who.get("position")
+            p["team"] = p.get("team") or who.get("team")
+            p["headshot"] = p.get("headshot") or who.get("headshot")
+        picks.append(p)
+    if not picks:
+        raise SystemExit("nothing in that folder has a result yet")
+    t = dt.datetime.fromisoformat(picks[0]["kickoff"])
+    score = (sum(1 for p in picks if p["hit"]), len(picks))
+    where = picks[0]["game"] if len({p["game"] for p in picks}) == 1 else "every pick we posted"
+    day = t.strftime("%A")
+    out = bp.POSTS / f"{t.date().isoformat()}-receipt"
+    out.mkdir(parents=True, exist_ok=True)
+    path = out / "video-receipt.mp4"
+    secs = render_receipt(path, picks, score, f"THE RECEIPT. {where.upper()}", where, day,
+                          bp.record(a.api), a.instagram, None if a.no_voice else a.voice,
+                          picks[0].get("last_season") or t.year, own)
+    print(f"  {path.name}: {secs:.0f} seconds, {score[0]} of {score[1]} right")
+    print(f"written to {out}")
+
+
 def samples(folder, line):
     """The same sentence in each voice, to choose one by ear."""
     out = Path(folder) / "voices"
@@ -1015,7 +1381,9 @@ def samples(folder, line):
 def main():
     ap = argparse.ArgumentParser(description="Draw a narrated video for each pick of a post.")
     ap.add_argument("folder", help="a post folder holding posted.json")
-    ap.add_argument("--player", help="only this player's video")
+    ap.add_argument("--player", help="only these players' videos, names separated by "
+                    "commas. A video is for a name people know: nobody watches a "
+                    "minute on a third tight end")
     ap.add_argument("--api", default=bp.API)
     ap.add_argument("--theme", choices=["thanksgiving"])
     ap.add_argument("--occasion", help="how the day is said, e.g. 'on Thanksgiving'. "
@@ -1029,6 +1397,9 @@ def main():
                     help="write a sample of each voice and stop")
     ap.add_argument("--music", help="a track of your own to put under the voice "
                     "in place of the beat made here")
+    ap.add_argument("--receipt", action="store_true",
+                    help="after the games: film how the folder's picks came in, "
+                    "the wins and the losses, with why")
     ap.add_argument("--no-voice", action="store_true")
     ap.add_argument("--no-photos", action="store_true")
     a = ap.parse_args()
@@ -1051,10 +1422,14 @@ def main():
         snd.BEAT, snd.OFFSET = 60.0 / bpm, first
         print(f"  the track runs at about {bpm:.0f} beats a minute; the picture "
               f"moves on that")
+    if a.receipt:
+        receipt_video(a, folder, own)
+        return
     r = bp.record(a.api)
     done = 0
     for i, p in enumerate(data["picks"], 1):
-        if a.player and a.player.lower() not in p["player_name"].lower():
+        if a.player and not any(n.strip().lower() in p["player_name"].lower()
+                                for n in a.player.split(",")):
             continue
         t = dt.datetime.fromisoformat(p["kickoff"])
         occasion = a.occasion or (f"on {t.strftime('%A')} night" if t.hour >= 19

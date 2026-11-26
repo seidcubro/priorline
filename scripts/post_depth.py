@@ -494,3 +494,60 @@ def weather(home, kickoff):
         say += " Nothing in the forecast that should change the game."
     return {"city": city, "roof": False, "temp": temp, "wind": wind,
             "wet": wet, "fall": fall, "say": say}
+
+
+# ------------------------------------------------------- after the game
+#
+# A receipt says what happened. This says why: what he was thrown, what his
+# team did with the ball, against what he had been getting before. It is the
+# same for a pick that lost as for one that won.
+
+
+def aftermath(p, season):
+    """What the game itself looked like for one posted pick, or nothing.
+
+    For a catches pick: his targets and catches that night, his targets a
+    game before it, and how often his team threw and ran.
+    """
+    try:
+        D = load(season)
+        away, home = (NICK.get(x) for x in p["game"].split(" at "))
+        gsis = p.get("gsis")
+        ids = [g for g in D["all"]["game_id"].unique() if g.endswith(f"_{away}_{home}")]
+        if not (gsis and ids):
+            return {}
+        gid = sorted(ids)[-1]
+        team = SAME.get(p.get("team"), p.get("team"))
+        th, runs, tg = D["thrown"], D["runs"], D["targets"]
+        out = {"team": ABBR.get(team, team),
+               "throws": int(len(th[(th["game_id"] == gid) & (th["posteam"] == team)])),
+               "runs": int(len(runs[(runs["game_id"] == gid) & (runs["posteam"] == team)]))}
+        m = p["market_code"]
+        if m in ("recs", "rec_yds"):
+            me = tg[tg["receiver_player_id"] == gsis]
+            that, before = me[me["game_id"] == gid], me[me["game_id"] != gid]
+            per = before.groupby("game_id").size()
+            out.update(kind="targets", got=int(len(that)),
+                       made=int(that["complete_pass"].sum()),
+                       before=float(per.mean()) if len(per) else 0.0,
+                       most=int(per.max()) if len(per) else 0)
+        elif m in ("rush_yds", "rush_att"):
+            me = runs[runs["rusher_player_id"] == gsis]
+            that, before = me[me["game_id"] == gid], me[me["game_id"] != gid]
+            per = before.groupby("game_id").size()
+            out.update(kind="carries", got=int(len(that)),
+                       made=float(that["yards_gained"].sum()),
+                       before=float(per.mean()) if len(per) else 0.0,
+                       most=int(per.max()) if len(per) else 0)
+        elif m.startswith("pass_"):
+            me = th[th["passer_player_id"] == gsis]
+            that, before = me[me["game_id"] == gid], me[me["game_id"] != gid]
+            per = before.groupby("game_id").size()
+            out.update(kind="throws", got=int(len(that)),
+                       made=float(that["pass_touchdown"].sum()),
+                       before=float(per.mean()) if len(per) else 0.0,
+                       most=int(per.max()) if len(per) else 0)
+        return out
+    except Exception as err:
+        print(f"  nothing on the game for {p.get('player_name')}: {err}")
+        return {}

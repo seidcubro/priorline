@@ -173,6 +173,7 @@ def as_pick(e, games, who=None):
 
 
 THEME = [None]
+NAME = [None]
 TIER_RANK = ["elite", "strong", "medium", "small"]
 LEAD = []
 
@@ -198,7 +199,11 @@ def board(api, keep, tiers=("elite",), players=None):
     if players:
         out = []
         for want in players:
-            hit = [e for e in rows if want.lower() in e["player_name"].lower()]
+            # "James Cook:recs" names the market as well, for a player with
+            # more than one pick on the board.
+            want, _, market = want.partition(":")
+            hit = [e for e in rows if want.strip().lower() in e["player_name"].lower()
+                   and (not market or e["market_code"] == market.strip())]
             if not hit:
                 raise SystemExit(f"{want} has no pick on the board for that")
             hit.sort(key=lambda e: TIER_RANK.index(e["edge_tier"]))
@@ -1146,7 +1151,7 @@ def pregame(api, rows, label, lead, folder, limit, tag, week):
     r = record(api)
     if not r:
         print("  the record has no stored figure, so the trust slide is left out")
-    out = POSTS / folder
+    out = POSTS / (NAME[0] or folder)
     out.mkdir(parents=True, exist_ok=True)
     for old in out.glob("*.png"):
         old.unlink()
@@ -1309,12 +1314,15 @@ def main():
                     "takes the night game too)")
     ap.add_argument("--theme", choices=["thanksgiving"],
                     help="dress the slides for the day")
+    ap.add_argument("--name", help="the folder to write to, if not the usual one: "
+                    "a second card on the same day would overwrite the first")
     ap.add_argument("--no-photos", action="store_true",
                     help="draw the slides without the players' photographs")
     a = ap.parse_args()
     if a.no_photos:
         art.PHOTOS[0] = False
     THEME[0] = a.theme
+    NAME[0] = a.name
     if a.lead:
         LEAD.append(a.lead.strip().lower())
     if a.skip:

@@ -18,7 +18,6 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pandas as pd
@@ -56,21 +55,49 @@ def players():
 
 
 def history(p):
-    try:
-        rows = get(f"players/{p['id']}/edge_history", limit=500)["history"]
-    except Exception:
-        return []
+    # The endpoint gives 200 at most, so a long history is read in pages.
+    rows, offset = [], 0
+    while True:
+        page = get(f"players/{p['id']}/edge_history", limit=200, offset=offset)["history"]
+        rows += page
+        if len(page) < 200:
+            break
+        offset += 200
     for r in rows:
         r["player_id"], r["player"], r["position"] = p["id"], p["name"], p["position"]
         r["gsis"], r["player_team"] = p.get("external_id"), p.get("team")
     return rows
 
 
+def touched(seasons=(2025, 2026)):
+    """The players who threw, ran or were thrown to in those seasons. The site
+    lists eight thousand players back to the nineties; these are the few
+    hundred a pick could have been on."""
+    ids = set()
+    for s in seasons:
+        f = OUT.parent / f"pbp_{s}.csv.gz"
+        if not f.exists():
+            continue
+        d = pd.read_csv(f, usecols=["passer_player_id", "rusher_player_id",
+                                    "receiver_player_id"], low_memory=False)
+        for c in d.columns:
+            ids |= set(d[c].dropna())
+    return ids
+
+
 def main():
-    ps = [p for p in players() if p.get("position") in ("QB", "RB", "WR", "TE", "FB")]
-    print(f"{len(ps)} skill players")
-    with ThreadPoolExecutor(2) as ex:
-        rows = [r for chunk in ex.map(history, ps) for r in chunk]
+    ids = touched()
+    ps = [p for p in players() if p.get("external_id") in ids]
+    print(f"{len(ps)} players who touched the ball", flush=True)
+    rows, failed = [], 0
+    for i, p in enumerate(ps):
+        try:
+            rows += history(p)
+        except Exception:
+            failed += 1
+        time.sleep(0.15)
+        if i % 100 == 99:
+            print(f"  {i + 1} read, {len(rows):,} picks so far, {failed} failed", flush=True)
     d = pd.DataFrame(rows)
     d = d[d["hit"].notna()].copy()
     d["game_date"] = pd.to_datetime(d["game_date"])
@@ -78,8 +105,7 @@ def main():
     OUT.parent.mkdir(parents=True, exist_ok=True)
     d.to_pickle(OUT)
     print(f"{len(d):,} graded picks, {d['game_date'].min().date()} to "
-          f"{d['game_date'].max().date()}, written to {OUT}")
-    print(d.groupby(["season", "edge_tier"]).size().unstack(fill_value=0))
+          f"{d['game_date'].max().date()}, {failed} player(s) failed, written to {OUT}")
 
 
 if __name__ == "__main__":

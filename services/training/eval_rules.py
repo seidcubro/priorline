@@ -93,6 +93,7 @@ def main():
     qb_rush_unders(engine)
     sure_pass_tds(engine)
     shadow_carries(engine)
+    short_line_unders(engine)
 
 
 QB_SQL = """
@@ -161,6 +162,30 @@ def shadow_carries(engine):
           f"{mine.mean():.1%}, the board's side on the same props {board.mean():.1%}; "
           f"its 40% furthest from the line {mine[far].mean():.1%} on {int(far.sum())} "
           "(backtest: 52.2%, and 55.4% furthest from the line)")
+
+
+LINE_SQL = SHADOW_SQL.replace("football_v1", "line_out_v1")
+
+
+def short_line_unders(engine):
+    """Carries unders on teams without a usual starting lineman, written by
+    line_health.py whether or not the rule is acting on the board."""
+    try:
+        with engine.connect() as conn:
+            s = pd.read_sql(text(LINE_SQL), conn)
+    except Exception:
+        print("  carries unders behind a short line: nothing written yet")
+        return
+    s = s[s["actual"].astype(float) != s["line"].astype(float)]
+    if len(s) < MIN_PICKS:
+        print(f"  carries unders behind a short line: {len(s)} graded, under {MIN_PICKS}, "
+              "too few to read (backtest: 59.1% on 303, needed 52.6%)")
+        return
+    right = s["actual"].astype(float) < s["line"].astype(float)
+    board = (s["board_side"] == "under") == right
+    print(f"  carries unders behind a short line: {len(s)} graded, right {right.mean():.1%}, "
+          f"the board's own side on the same props {board.mean():.1%} "
+          "(backtest: 59.1% on 303, needed 52.6%)")
 
 
 def sure_pass_tds(engine):

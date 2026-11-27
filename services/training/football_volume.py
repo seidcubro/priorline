@@ -427,6 +427,12 @@ def candidates(rows, people, gone, chart, t):
     Every one of them gets a number as though he starts, read on his own
     games. The board only prices the man the book expects, so the others cost
     nothing, and nobody has to guess the starter right for the number to be.
+
+    That includes a man the report still lists as out. A report runs behind
+    the news, and the week a starter comes back he has to have a number ready
+    whether or not the report has caught up. Injured men are only moved to the
+    back of the order, which decides nothing but who is printed as the starter
+    and who the backs' carries are read beside.
     """
     rank = {r.player_id: r.rank for r in chart.itertuples()}
     last = t[t["future"] == 0].groupby("qb")["game_date"].max().to_dict()
@@ -434,10 +440,10 @@ def candidates(rows, people, gone, chart, t):
     qbs["team"] = qbs["team"].map(code)
     by = {}
     for team in {r["posteam"] for r in rows}:
-        mine = qbs[(qbs["team"] == team) & ~qbs["external_id"].isin(gone)]
+        mine = qbs[qbs["team"] == team]
         order = sorted(mine["external_id"], key=lambda p: (
-            rank.get(p, 9), -(last[p].toordinal() if p in last else 0)))
-        by[team] = order[:4]
+            p in gone, rank.get(p, 9), -(last[p].toordinal() if p in last else 0)))
+        by[team] = order[:6]
     return by
 
 
@@ -504,7 +510,7 @@ def numbers():
               f"props: this was off by {mine:.2f}, what we published by {ours:.2f}, the "
               f"line by {book:.2f}" + ("" if ok[market] else ". NOT closer, so not used"))
 
-    for k in range(4):
+    for k in range(6):
         future = [dict(r, qb=by[r["posteam"]][k]) for r in rows if len(by[r["posteam"]]) > k]
         if not future:
             break
@@ -522,8 +528,15 @@ def numbers():
                         "qb": names.get(r.qb, r.qb), "share_of_last_17": round(r.q_share, 2),
                         "games_since_his_last_start": int(r.q_gap),
                         market: round(float(v), 1)} | report["starters"].get(r.posteam, {})
+    waiting = [f"{names.get(p, p)} {v.get('pass_att', '-')}" for team in sorted(by)
+               for p in by[team] if p in gone and p in report["numbers"]
+               for v in [report["numbers"][p]]]
+    if waiting:
+        print("    listed out, with attempts ready for the week they are back: "
+              + ", ".join(waiting))
     for team, s in sorted(report["starters"].items()):
-        back = " (back after another man started)" if s["games_since_his_last_start"] else ""
+        back = (" (the usual starter, back after another man started)"
+                if s["games_since_his_last_start"] and s["share_of_last_17"] >= 0.5 else "")
         print(f"    {team}: {s['qb']}, started {s['share_of_last_17']:.0%} of the last 17"
               f"{back}; attempts {s.get('pass_att', '-')}, completions "
               f"{s.get('pass_completions', '-')}")

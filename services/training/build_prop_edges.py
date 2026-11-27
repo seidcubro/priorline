@@ -38,6 +38,7 @@ import pandas as pd
 import vacated_volume as vv
 import qb_rushing
 import football_volume
+import line_health
 import spread_calibration as spread
 import thin_sample
 from odds_markets import ALL_ODDS_TO_MARKET
@@ -1868,6 +1869,8 @@ def main():
     # (player, market) for every quarterback rushing prop, so the tier rule
     # below can find them without the board carrying a position column.
     qb_rush: set = set()
+    # Running backs with a carries prop, and their team, for line_health.py.
+    rb_carries: dict = {}
 
     for _, o in odds.iterrows():
         market_code = o["market_code"]
@@ -2666,6 +2669,9 @@ def main():
         if (market_code in QB_RUSH_ELITE
                 and str(frow.get("position") or "").upper() == "QB"):
             qb_rush.add((o["player_name"], market_code))
+        if market_code == "rush_att" and str(frow.get("position") or "").upper() == "RB":
+            rb_carries[o["player_name"]] = football_volume.code(
+                frow.get("current_team") or frow.get("team"))
         rows.append({
             "event_id": o["event_id"],
             "commence_time": o["commence_time"],
@@ -2831,6 +2837,26 @@ def main():
                       "to elite: " + ", ".join(
                           f"{r.player_name} {r.recommended_side} {r.line}"
                           for r in sure.drop_duplicates("player_name").itertuples()))
+        # A team without a usual starting lineman: its backs' carries unders
+        # were right 59.1% on 303 against 52.6% needed. Printed every run and
+        # graded in shadow; acted on only with LINE_OUT_RULE=1, and then only
+        # on the tier. See line_health.py.
+        short_lines = line_health.short(artifact_dir)
+        if short_lines and rb_carries:
+            hit = out[(out["market_code"] == "rush_att") & out["notes"].isna()
+                      & out["player_name"].map(lambda n: rb_carries.get(n) in short_lines)]
+            if len(hit):
+                print("  carries props on a team without a usual starting lineman: "
+                      + ", ".join(f"{r.player_name} {r.recommended_side} {r.line}"
+                                  for r in hit.drop_duplicates("player_name").itertuples())
+                      + ("" if line_health.acts() else " (LINE_OUT_RULE is off, tiers unchanged)"))
+                if line_health.acts():
+                    up = hit[(hit["recommended_side"] == "under")
+                             & ~hit["edge_tier"].isin(["elite", "strong"])]
+                    down = hit[(hit["recommended_side"] == "over")
+                               & hit["edge_tier"].isin(["elite", "strong", "medium"])]
+                    out.loc[up.index, "edge_tier"] = "strong"
+                    out.loc[down.index, "edge_tier"] = "small"
         if football_used:
             print(f"  attempts and completions read from the team, the script and the "
                   f"man under centre: {len(football_used)} quarterback props")

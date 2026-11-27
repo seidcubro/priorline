@@ -135,11 +135,14 @@ log() { printf '\n[%s] ==> %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$1"; }
 football_numbers() {
   log "read attempts and completions from the team and the script"
   $COMPOSE run --rm training python football_volume.py     || log "the football volume step failed; the board keeps its own numbers"
+  log "find the teams without a starting lineman"
+  $COMPOSE run --rm training python line_health.py     || log "the line health step failed; the board is unaffected"
 }
 
 explain_the_board() {
   log "write the football model's carries beside the board's, for grading"
   $COMPOSE run --rm training python football_volume.py shadow     || log "the carries shadow failed; the board is unaffected"
+  $COMPOSE run --rm training python line_health.py shadow     || log "the line health shadow failed; the board is unaffected"
   # The elite receiving picks, chosen by a second model's confidence. It checks
   # itself on seasons it has not seen every time it runs and changes nothing if
   # it does not beat its prices in each. A failure leaves the tiers the board

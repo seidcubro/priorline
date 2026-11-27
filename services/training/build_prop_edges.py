@@ -167,6 +167,27 @@ EVEN_FLOOR = float(os.getenv("EVEN_FLOOR", "0.45"))
 # The ones it was measured on and held in. See where the side is chosen.
 SIDE_FROM_CHANCE = frozenset({"recs", "rec_yds", "rush_yds", "rush_att"})
 
+# The under on a quarterback whose rushing line is set high is the board's top
+# tier, whatever its gap ranks it.
+#
+# On the published record through 25 November 2026 the under on a quarterback's
+# rushing prop came in more often the higher the book set the line, in both
+# seasons and both markets. Attempts: 59.1% above 3.5, 61.4% above 4.5, 66.7%
+# above 5.5. Yards: 57.6% above 15.5, 62.4% above 20.5, 66.3% above 25.5. Above
+# the two cuts used here it was 65.4% on 107 in 2025 and 68.5% on 54 in 2026,
+# at about even money. Spread across Jackson, Hurts, Daniels, Allen, Maye and
+# Fields; it is not one player.
+#
+# Why it should hold: a quarterback's rushing average is carried by a handful
+# of big games, his usual game sits well under it (qb_rushing.py), and the book
+# hangs the line near the average because the public bets the over on a
+# quarterback who runs. The gap ranking cannot see that, because it ranks on
+# how far our number is from the line and here the mispricing is in the shape.
+#
+# QB_RUSH_ELITE=0 turns it off. eval_rules.py grades it apart every run.
+QB_RUSH_ELITE = ({} if os.getenv("QB_RUSH_ELITE", "1") == "0"
+                 else {"rush_att": 5.5, "rush_yds": 25.5})
+
 # The markets where a pick is only ranked if the line agrees with it about the
 # player's recent games. See form_agrees().
 FORM_GATED = frozenset({"pass_yds"})
@@ -1828,6 +1849,9 @@ def main():
 
     model_cache = {}
     rows = []
+    # (player, market) for every quarterback rushing prop, so the tier rule
+    # below can find them without the board carrying a position column.
+    qb_rush: set = set()
 
     for _, o in odds.iterrows():
         market_code = o["market_code"]
@@ -2604,6 +2628,9 @@ def main():
             skip("the price already covers the edge", o["player_name"], market_code)
             continue
         
+        if (market_code in QB_RUSH_ELITE
+                and str(frow.get("position") or "").upper() == "QB"):
+            qb_rush.add((o["player_name"], market_code))
         rows.append({
             "event_id": o["event_id"],
             "commence_time": o["commence_time"],
@@ -2743,6 +2770,22 @@ def main():
                 print("  strong and medium by price, across the board: "
                       + ", ".join(f"{m} {n}" for m, n in
                                   shown["market_code"].value_counts().items()))
+        # The high-line quarterback rushing under, lifted to elite. After the
+        # ranking and the price cut, so it is not handed back down by either.
+        # Only an under the board already takes and has not marked: a pick
+        # against our own number is never offered as a bet.
+        if QB_RUSH_ELITE and qb_rush:
+            lifted = out[
+                out["notes"].isna()
+                & (out["recommended_side"] == "under")
+                & out.apply(lambda r: (r["player_name"], r["market_code"]) in qb_rush
+                            and float(r["line"]) > QB_RUSH_ELITE[r["market_code"]], axis=1)
+                & (out["edge_tier"] != "elite")]
+            if len(lifted):
+                out.loc[lifted.index, "edge_tier"] = "elite"
+                print("  high-line quarterback rushing unders lifted to elite: "
+                      + ", ".join(f"{r.player_name} {r.market_code} under {r.line}"
+                                  for r in lifted.itertuples()))
         after = out["edge_tier"].value_counts().to_dict()
         print("  tiers by rank within each market's board: "
               + ", ".join(f"{t} {after.get(t, 0)}"

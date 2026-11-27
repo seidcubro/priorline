@@ -71,6 +71,7 @@ def main():
     print(f"Rules graded on live picks since {SINCE}")
     if d.empty:
         print("  nothing graded yet")
+        qb_rush_unders(engine)
         return
     print(f"  {'market':<18}{'mark':<16}{'picks':>6}{'right':>9}{'needed':>9}")
     for r in d.itertuples(index=False):
@@ -89,6 +90,48 @@ def main():
     for mark, r in allm.iterrows():
         rate = f"{r['right']:.1%}" if r["picks"] >= MIN_PICKS else "too few"
         print(f"  {'':<18}{mark:<16}{int(r['picks']):>6}{rate:>9}")
+    qb_rush_unders(engine)
+
+
+QB_SQL = """
+SELECT COUNT(*) AS picks,
+       AVG(CASE WHEN r.hit THEN 1.0 ELSE 0 END) AS right_rate,
+       AVG(CASE WHEN r.price_american > 0 THEN 100.0 / (r.price_american + 100.0)
+                WHEN r.price_american < 0 THEN -r.price_american / (-r.price_american + 100.0)
+           END) AS needed
+FROM prop_edge_results r
+JOIN prop_edges_history h ON h.id = r.edge_id
+WHERE r.hit IS NOT NULL
+  AND r.source = 'live'
+  AND r.game_date >= :since
+  AND h.recommended_side = 'under'
+  AND ((h.market_code = 'rush_att' AND h.line > 5.5)
+       OR (h.market_code = 'rush_yds' AND h.line > 25.5))
+  AND h.player_name IN (SELECT name FROM players WHERE position = 'QB')
+"""
+
+
+def qb_rush_unders(engine):
+    """The high-line quarterback rushing under, which the board lifts to elite.
+
+    It went live on 27 November 2026 on a backtest of 66.5% on 161 picks. This
+    is what it has done since, on its own line so it cannot hide inside a tier.
+    """
+    since = os.getenv("QB_RUSH_SINCE", "2026-11-27")
+    try:
+        with engine.connect() as conn:
+            r = pd.read_sql(text(QB_SQL), conn, params={"since": since}).iloc[0]
+    except Exception as exc:
+        print(f"  high-line quarterback rushing unders: could not be read ({exc})")
+        return
+    n = int(r["picks"] or 0)
+    if n < MIN_PICKS:
+        print(f"  high-line quarterback rushing unders since {since}: {n} graded, "
+              f"under {MIN_PICKS}, too few to read (backtest: 66.5% on 161)")
+    else:
+        print(f"  high-line quarterback rushing unders since {since}: {n} graded, "
+              f"right {r['right_rate']:.1%}, needed {r['needed']:.1%} "
+              f"(backtest: 66.5% on 161)")
 
 
 if __name__ == "__main__":

@@ -129,6 +129,12 @@ log() { printf '\n[%s] ==> %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$1"; }
 # and apart from it: its own table, and a failure here changes nothing on the
 # board, so it is logged and the run goes on. See build_why.py.
 explain_the_board() {
+  # The elite receiving picks, chosen by a second model's confidence. It checks
+  # itself on seasons it has not seen every time it runs and changes nothing if
+  # it does not beat its prices in each. A failure leaves the tiers the board
+  # was built with. See stack_elite.py.
+  log "choose the elite receiving picks"
+  $COMPOSE run --rm training python stack_elite.py     || log "the elite receiving step failed; the board keeps its own tiers"
   log "work out the numbers under each pick"
   $COMPOSE run --rm training python build_why.py     || log "the numbers under the picks failed; the board is unaffected"
 }

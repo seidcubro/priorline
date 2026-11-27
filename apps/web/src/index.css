@@ -4369,6 +4369,11 @@ a.ps-link:hover {
 .ps-table col.c-prob { width: 120px; }
 .ps-table col.c-pick { width: 106px; }
 .ps-table:has(colgroup) { min-width: 1280px; }
+/* Value carries a line under its number ("needs 65%"), so it is wider than the
+   other narrow columns, and the tier column gives up the difference. */
+.ps-table col:nth-child(7) { width: 98px; }
+.ps-table col.c-tier { width: 222px; }
+.ps-table td[data-label="Tier"] { padding-left: 8px; padding-right: 8px; }
 
 /* What 100 dollars comes back as. Green at 100 or better, quiet under it:
    under 100 is the usual case, not a loss, and red is kept for losses. */
@@ -4383,4 +4388,11 @@ a.ps-link:hover {
 @media (max-width: 960px) {
   .ps-table:has(colgroup) { min-width: 0; }
   .ps-chiprow { flex-wrap: wrap; justify-content: flex-start; }
+}
+
+/* The cells' side padding, narrowed. With the columns tightened to fit the
+   page, the call, the chance bar and the books were each a few pixels wider
+   than the room left inside their cell, and a cell clips what does not fit. */
+@media (min-width: 961px) {
+  .ps-table tbody tr[data-tier] > td:not(:first-child) { padding-left: 8px; padding-right: 8px; }
 }

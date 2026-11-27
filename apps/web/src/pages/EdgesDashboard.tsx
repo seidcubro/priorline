@@ -64,27 +64,6 @@ function bigThree(e: PropEdge): { book: string; line: number | null; best: boole
   }));
 }
 
-/**
- * What a pick's price is worth, as a letter.
- *
- * Expected value is the right quantity and an unreadable label: "+3.5% EV"
- * means nothing to anyone who has not priced a bet, and it reads as small
- * whatever it is. The grade says the same thing in the units people already
- * use, and the exact figure stays in the tooltip for anyone who wants it.
- *
- * Fixed cuts on the expected return per unit staked: six cents on the dollar
- * or better is an A, three is a B, anything above zero is a C, and anything at
- * or below zero is a bet the price already covers. The Faq and the glossary
- * state the same cuts in words, so change all three together.
- */
-function grade(ev: number | null): { letter: string; cls: string } | null {
-  if (ev === null || !Number.isFinite(ev)) return null;
-  if (ev >= 0.06) return { letter: "A", cls: "is-a" };
-  if (ev >= 0.03) return { letter: "B", cls: "is-b" };
-  if (ev > 0) return { letter: "C", cls: "is-c" };
-  return { letter: "D", cls: "is-d" };
-}
-
 /** The win rate a price needs to break even, vig included. */
 function breakEven(price: number | null | undefined): number | null {
   if (price == null || !Number.isFinite(price) || price === 0) return null;
@@ -385,7 +364,8 @@ export default function EdgesDashboard() {
       <p className="ps-tagline">
         Sportsbook lines against our own number for the same player.{" "}
         <strong>Chance</strong> is how often a pick like this lands, and{" "}
-        <strong>Value</strong> grades the price you are getting for it. A big
+        <strong>Value</strong> is that chance minus the chance the price needs
+        to break even. A big
         chance at a bad price is still a bad bet.{" "}
         <Link to="/faq">How it works</Link>.
       </p>
@@ -852,29 +832,38 @@ export default function EdgesDashboard() {
                       </td>
                     );
                   })()}
-                  <td
-                    data-label="Value"
-                    title={
-                      e.ev_per_unit === null
-                        ? undefined
-                        : `At this price, 100 dollars returns about ${(100 * (1 + e.ev_per_unit)).toFixed(0)} on average. A is better than the top tier's long-run return, D means the price already covers it.`
+                  {/*
+                    Value: our chance minus the chance the price needs.
+
+                    It has been a letter, which was C or D on every row, and
+                    then what 100 dollars comes back as, which put "$100"
+                    beside a -220 price and read as nonsense. Both hid the
+                    one comparison a bettor already makes in his head: a price
+                    of -200 has to win 66.7% of the time to break even, and we
+                    either think it wins more often than that or we do not.
+                    So that is what is printed, in points, with both numbers
+                    in the tooltip.
+                  */}
+                  {(() => {
+                    const need = breakEven(e.price_american);
+                    const have = e.win_prob;
+                    if (need === null || have === null || !Number.isFinite(have)) {
+                      return <td data-label="Value">-</td>;
                     }
-                  >
-                    {(() => {
-                      const g = grade(e.ev_per_unit);
-                      return g === null ? (
-                        "-"
-                      ) : (
-                        // What 100 dollars comes back as, on average, at this
-                        // price. It was a letter, and the letter was C or D
-                        // on every row, which is true and tells you nothing
-                        // about which D is nearly even and which is not.
-                        <span className={`ps-payback ${g.cls}`}>
-                          ${(100 * (1 + (e.ev_per_unit ?? 0))).toFixed(0)}
+                    const pts = (have - need) * 100;
+                    return (
+                      <td
+                        data-label="Value"
+                        title={`We give this a ${(have * 100).toFixed(0)}% chance. At ${fmtOdds(e.price_american)} it has to win ${(need * 100).toFixed(0)}% of the time to break even. Above zero means we think it wins more often than the price needs.`}
+                      >
+                        <span className={`ps-payback ${pts > 0 ? "is-a" : "is-d"}`}>
+                          {pts > 0 ? "+" : pts < 0 ? "−" : ""}
+                          {Math.abs(pts).toFixed(1)}%
                         </span>
-                      );
-                    })()}
-                  </td>
+                        <span className="ps-cellnote">needs {(need * 100).toFixed(0)}%</span>
+                      </td>
+                    );
+                  })()}
                   <td data-label="Pick">
                     <span className={over ? "side-over" : "side-under"}>
                       {sideLabel(e.market_code, e.recommended_side)}

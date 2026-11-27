@@ -4147,3 +4147,29 @@ a.ps-link:hover {
   .pc-side b { font-size: 2rem; }
   .pc-read { gap: var(--s2) var(--s5); }
 }
+
+/*
+ * On a phone a board row is a card and its cells are blocks inside it with
+ * space between them. The tint that marks a bet row is painted on the cells,
+ * which on a wide screen join up into one band and on a card showed as a grey
+ * box round every piece of text. Here the card carries the tint and the cells
+ * carry nothing.
+ *
+ * Hover is switched off where there is no pointer to hover with: a tap leaves
+ * a row "hovered" until the next tap, so the last card touched stayed shaded.
+ */
+@media (max-width: 960px) {
+  .ps-table tbody tr.is-bet > td { background-color: transparent; }
+  .ps-table tbody tr.is-bet {
+    background: color-mix(in srgb, var(--accent) 7%, var(--bg-raised));
+  }
+}
+@media (hover: none) {
+  .ps-table tbody tr:hover,
+  .ps-table tbody tr.is-bet:hover,
+  .ps-table tbody tr.has-why:hover + tr.ps-whyrow,
+  .ps-table tbody tr.ps-whyrow:hover { background: inherit; }
+  .ps-table tbody tr.is-bet:hover {
+    background: color-mix(in srgb, var(--accent) 7%, var(--bg-raised));
+  }
+}

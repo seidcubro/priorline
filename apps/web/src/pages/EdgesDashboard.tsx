@@ -731,7 +731,7 @@ export default function EdgesDashboard() {
                     </div>
                     {says.length ? (
                       <p className="ps-why ps-why-inline">
-                        <span className="ps-why-label">Why?</span>
+                        <span className="ps-why-label" title="The numbers under this pick">Why?</span>
                         {says.join(" ")}
                       </p>
                     ) : null}
@@ -920,7 +920,7 @@ export default function EdgesDashboard() {
                       className={`ps-whyrow ${isBet ? "is-bet" : "is-context"}`}>
                     <td colSpan={10}>
                       <p className="ps-why">
-                        <span className="ps-why-label">Why?</span>
+                        <span className="ps-why-label" title="The numbers under this pick">Why?</span>
                         {says.join(" ")}
                       </p>
                     </td>

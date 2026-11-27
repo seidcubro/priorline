@@ -164,28 +164,34 @@ def shadow_carries(engine):
           "(backtest: 52.2%, and 55.4% furthest from the line)")
 
 
-LINE_SQL = SHADOW_SQL.replace("football_v1", "line_out_v1")
+WATCHED = (("line_out_v1", "carries unders behind a short line",
+            "59.1% on 303, needed 52.6%"),
+           ("line_and_secondary_v1", "carries unders, short line and opponent short at "
+            "defensive back", "64.1% on 131, needed 52.6%"),
+           ("new_qb_recs_v1", "catches unders with a different quarterback than last week",
+            "56.7% on 372, needed 52.5%"))
 
 
 def short_line_unders(engine):
-    """Carries unders on teams without a usual starting lineman, written by
-    line_health.py whether or not the rule is acting on the board."""
-    try:
-        with engine.connect() as conn:
-            s = pd.read_sql(text(LINE_SQL), conn)
-    except Exception:
-        print("  carries unders behind a short line: nothing written yet")
-        return
-    s = s[s["actual"].astype(float) != s["line"].astype(float)]
-    if len(s) < MIN_PICKS:
-        print(f"  carries unders behind a short line: {len(s)} graded, under {MIN_PICKS}, "
-              "too few to read (backtest: 59.1% on 303, needed 52.6%)")
-        return
-    right = s["actual"].astype(float) < s["line"].astype(float)
-    board = (s["board_side"] == "under") == right
-    print(f"  carries unders behind a short line: {len(s)} graded, right {right.mean():.1%}, "
-          f"the board's own side on the same props {board.mean():.1%} "
-          "(backtest: 59.1% on 303, needed 52.6%)")
+    """The unders line_health.py writes, each graded on its own."""
+    for model, label, backtest in WATCHED:
+        sql = SHADOW_SQL.replace("football_v1", model).replace(
+            "AND s.market_code = 'rush_att'", "")
+        try:
+            with engine.connect() as conn:
+                s = pd.read_sql(text(sql), conn)
+        except Exception:
+            print(f"  {label}: nothing written yet")
+            continue
+        s = s[s["actual"].astype(float) != s["line"].astype(float)]
+        if len(s) < MIN_PICKS:
+            print(f"  {label}: {len(s)} graded, under {MIN_PICKS}, too few to read "
+                  f"(backtest: {backtest})")
+            continue
+        right = s["actual"].astype(float) < s["line"].astype(float)
+        board = (s["board_side"] == "under") == right
+        print(f"  {label}: {len(s)} graded, right {right.mean():.1%}, the board's own side "
+              f"on the same props {board.mean():.1%} (backtest: {backtest})")
 
 
 def sure_pass_tds(engine):

@@ -2839,7 +2839,7 @@ def main():
                           for r in sure.drop_duplicates("player_name").itertuples()))
         # A team without a usual starting lineman: its backs' carries unders
         # were right 59.1% on 303 against 52.6% needed. Printed every run and
-        # graded in shadow; acted on only with LINE_OUT_RULE=1, and then only
+        # graded in shadow, and acted on unless LINE_OUT_RULE=0, and then only
         # on the tier. See line_health.py.
         short_lines = line_health.short(artifact_dir)
         if short_lines and rb_carries:
@@ -2849,7 +2849,8 @@ def main():
                 print("  carries props on a team without a usual starting lineman: "
                       + ", ".join(f"{r.player_name} {r.recommended_side} {r.line}"
                                   for r in hit.drop_duplicates("player_name").itertuples())
-                      + ("" if line_health.acts() else " (LINE_OUT_RULE is off, tiers unchanged)"))
+                      + ("; unders at least strong, overs small" if line_health.acts()
+                         else " (LINE_OUT_RULE=0, tiers unchanged)"))
                 if line_health.acts():
                     up = hit[(hit["recommended_side"] == "under")
                              & ~hit["edge_tier"].isin(["elite", "strong"])]

@@ -31,9 +31,9 @@ receivers, tight ends and defenders missing did not move any market's price.
                                     priced back on those teams to the shadow
                                     table, where eval_rules.py grades it
 
-With LINE_OUT_RULE=1 the board builder also acts on it: a carries under on one
-of these teams is at least strong, and a carries over is small. It is off until
-I turn it on.
+The board builder acts on it: a carries under on one of these teams is at
+least strong, and a carries over is small. On since 27 November 2026.
+LINE_OUT_RULE=0 turns it off and leaves the shadow grading running.
 """
 
 from __future__ import annotations
@@ -189,7 +189,7 @@ def short(artifact_dir=None) -> dict:
 
 
 def acts() -> bool:
-    return os.getenv("LINE_OUT_RULE", "0") == "1"
+    return os.getenv("LINE_OUT_RULE", "1") != "0"
 
 
 def shadow():

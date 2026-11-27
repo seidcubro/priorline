@@ -437,11 +437,15 @@ def candidates(rows, people, gone, chart, t):
     rank = {r.player_id: r.rank for r in chart.itertuples()}
     played = t[t["future"] == 0].sort_values("game_date")
     last = played.groupby("qb")["game_date"].max().to_dict()
+    newest = played["game_date"].max()
     qbs = people[(people["position"] == "QB")].copy()
     qbs["team"] = qbs["team"].map(code)
     by = {}
     for team in {r["posteam"] for r in rows}:
-        mine = list(qbs.loc[qbs["team"] == team, "external_id"])
+        # Only men who have thrown a pass since the season before last or are
+        # on the depth chart. The table also holds Steve Beuerlein.
+        mine = [p for p in qbs.loc[qbs["team"] == team, "external_id"]
+                if p in rank or (p in last and (newest - last[p]).days < 800)]
         # Who is in the six is decided on football, not on health: anyone who
         # started for this team in its last 17 games, then the depth chart,
         # then whoever threw most recently. The players table keeps every

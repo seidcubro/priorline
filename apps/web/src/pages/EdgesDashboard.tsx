@@ -148,9 +148,14 @@ function otherBooks(e: PropEdge): string {
 
 /** Every book and its line, for the tooltip. */
 function bookList(e: PropEdge): string {
-  return [`${e.bookmaker_title ?? e.bookmaker_key} ${e.line ?? "-"}`,
-    ...e.alts.map((a) => `${a.bookmaker_title ?? a.bookmaker_key} ${a.line ?? "-"}`)]
-    .join("\n");
+  const rows = [`${e.bookmaker_title ?? e.bookmaker_key} ${e.line ?? "-"}`,
+    ...e.alts.map((a) => `${a.bookmaker_title ?? a.bookmaker_key} ${a.line ?? "-"}`)];
+  // And the books posting a different line from the one this pick is priced
+  // at, which used to be listed in the cell.
+  const off = offConsensus(e).map((o) => `${o.books.join(", ")} at ${o.line}`);
+  return off.length
+    ? [...rows, "", "A different line, which is a different bet:", ...off].join("\n")
+    : rows.join("\n");
 }
 
 

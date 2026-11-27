@@ -230,6 +230,7 @@ def main():
     # Same adjustment the edge builder applies, built the same way, so a
     # backup quarterback reads the same number on both pages.
     vacated_vol = vv.VacatedVolume(engine, ctx, vv.load_all(ARTIFACT_DIR))
+    football = bp.football_volume.published(ARTIFACT_DIR)
 
     if MARKETS_ONLY:
         before = len(df)
@@ -394,6 +395,15 @@ def main():
             # week. See db/migrations/add_projection_raw.sql.
             pred_raw = pred
             pred = sc.apply(spread_cal, market_code, "point", pred)
+            # A quarterback's attempts and completions from football_volume.py,
+            # at the same three places the edge builder puts them, or the two
+            # pages print different numbers for the same man. The stale factor
+            # is dropped for him as it is there: the range is centred on the
+            # number, which leaves nothing for it to scale.
+            football_number = (football.get(str(r.player_id)) or {}).get(market_code)
+            if football_number:
+                pred = float(football_number)
+                factor = 1.0
 
             qs = {}
             is_count = market_code in bp.COUNT_MARKETS
@@ -459,6 +469,8 @@ def main():
                 # not on his average, at the same place the edge builder does
                 # it. See qb_rushing.py.
                 raw = qb_rushing.recentre(raw, pred, r.position, market_code)
+                if football_number:
+                    raw = bp.football_volume.recentre(raw, pred)
                 cal = bp.calibrated_quantiles(raw, quant.get("calibration"))
                 qs = {q: v * factor for q, v in cal.items()}
 
@@ -489,6 +501,8 @@ def main():
                 # A quarterback's rushing median has the last word over the
                 # anchor, as on the board. See qb_rushing.py.
                 qs[0.50] = qb_rushing.median(qs[0.50], pred, r.position, market_code)
+                if football_number:
+                    qs[0.50] = float(football_number)
 
             p50_raw = qs.get(0.50)
             if qs.get(0.50) is not None:

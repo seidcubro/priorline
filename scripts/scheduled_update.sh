@@ -162,11 +162,13 @@ rebuild_on_current_news() {
     -e ONLY=injuries,depth_charts,players priorline-ingest
 
   $COMPOSE build -q training >/dev/null
+  # Before the projections as well as the board: both pages print these
+  # numbers and the audit fails the run when they differ.
+  football_numbers
   log "rebuild projections"
   $COMPOSE run --rm -e MARKETS_ONLY="${MARKETS_ONLY:-}" \
     training python build_projections.py
   log "rebuild the board"
-  football_numbers
   $COMPOSE run --rm training python build_prop_edges.py
   explain_the_board
 }
@@ -542,7 +544,6 @@ SQL
 
   log "rebuild the board on the new prices"
   $COMPOSE build -q training >/dev/null
-  football_numbers
   $COMPOSE run --rm training python build_prop_edges.py
   log "done"
   exit 0
@@ -948,6 +949,7 @@ if [ "$FAST" = "0" ]; then
   $COMPOSE run --rm -e WRITE=1 training python fit_role_regime.py
 fi
 
+football_numbers
 log "project every eligible player"
 # Scoped when MARKETS_ONLY is set, which is most of the cost of a
 # refresh: reprojecting all eleven markets for 594 players took five and a
@@ -957,7 +959,6 @@ $COMPOSE run --rm -e MARKETS_ONLY="${MARKETS_ONLY:-}" \
   training python build_projections.py
 
 log "build the board"
-football_numbers
 $COMPOSE run --rm training python build_prop_edges.py
 explain_the_board
 

@@ -435,15 +435,25 @@ def candidates(rows, people, gone, chart, t):
     and who the backs' carries are read beside.
     """
     rank = {r.player_id: r.rank for r in chart.itertuples()}
-    last = t[t["future"] == 0].groupby("qb")["game_date"].max().to_dict()
+    played = t[t["future"] == 0].sort_values("game_date")
+    last = played.groupby("qb")["game_date"].max().to_dict()
     qbs = people[(people["position"] == "QB")].copy()
     qbs["team"] = qbs["team"].map(code)
     by = {}
     for team in {r["posteam"] for r in rows}:
-        mine = qbs[qbs["team"] == team]
-        order = sorted(mine["external_id"], key=lambda p: (
-            p in gone, rank.get(p, 9), -(last[p].toordinal() if p in last else 0)))
-        by[team] = order[:6]
+        mine = list(qbs.loc[qbs["team"] == team, "external_id"])
+        # Who is in the six is decided on football, not on health: anyone who
+        # started for this team in its last 17 games, then the depth chart,
+        # then whoever threw most recently. The players table keeps every
+        # quarterback a team has had, and cutting the list by health first
+        # dropped Lamar Jackson, Drake Maye and Malik Willis behind five men
+        # who will never start.
+        recent = set(played[played["posteam"] == team].tail(17)["qb"].dropna())
+        keep = sorted(mine, key=lambda p: (
+            p not in recent, rank.get(p, 9), -(last[p].toordinal() if p in last else 0)))[:6]
+        by[team] = sorted(keep, key=lambda p: (
+            p in gone, rank.get(p, 9), p not in recent,
+            -(last[p].toordinal() if p in last else 0)))
     return by
 
 

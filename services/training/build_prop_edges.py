@@ -188,6 +188,16 @@ SIDE_FROM_CHANCE = frozenset({"recs", "rec_yds", "rush_yds", "rush_att"})
 QB_RUSH_ELITE = ({} if os.getenv("QB_RUSH_ELITE", "1") == "0"
                  else {"rush_att": 5.5, "rush_yds": 25.5})
 
+# A passing touchdowns pick we give a 60% chance or better is elite.
+#
+# Passing touchdowns is the one market where our published chance has sorted
+# picks all along. At 60% or more it was right 67.8% on 118 in 2025 and 62.8%
+# on 113 in 2026, about level with its prices over the two seasons. The gap
+# ranking misses these because a touchdown line is 0.5, 1.5 or 2.5 and the gap
+# between our number and a line that coarse says little about how sure we are.
+# PASS_TD_ELITE=0 turns it off. eval_rules.py grades it apart.
+PASS_TD_ELITE = float(os.getenv("PASS_TD_ELITE", "0.60"))
+
 # The markets where a pick is only ranked if the line agrees with it about the
 # player's recent games. See form_agrees().
 FORM_GATED = frozenset({"pass_yds"})
@@ -2786,6 +2796,16 @@ def main():
                 print("  high-line quarterback rushing unders lifted to elite: "
                       + ", ".join(f"{r.player_name} {r.market_code} under {r.line}"
                                   for r in lifted.itertuples()))
+        if PASS_TD_ELITE > 0:
+            sure = out[out["notes"].isna() & (out["market_code"] == "pass_td")
+                       & (out["win_prob"].astype(float) >= PASS_TD_ELITE)
+                       & (out["edge_tier"] != "elite")]
+            if len(sure):
+                out.loc[sure.index, "edge_tier"] = "elite"
+                print(f"  passing touchdown picks at {PASS_TD_ELITE:.0%} or better lifted "
+                      "to elite: " + ", ".join(
+                          f"{r.player_name} {r.recommended_side} {r.line}"
+                          for r in sure.drop_duplicates("player_name").itertuples()))
         after = out["edge_tier"].value_counts().to_dict()
         print("  tiers by rank within each market's board: "
               + ", ".join(f"{t} {after.get(t, 0)}"

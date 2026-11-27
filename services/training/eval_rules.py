@@ -91,6 +91,7 @@ def main():
         rate = f"{r['right']:.1%}" if r["picks"] >= MIN_PICKS else "too few"
         print(f"  {'':<18}{mark:<16}{int(r['picks']):>6}{rate:>9}")
     qb_rush_unders(engine)
+    sure_pass_tds(engine)
 
 
 QB_SQL = """
@@ -109,6 +110,37 @@ WHERE r.hit IS NOT NULL
        OR (h.market_code = 'rush_yds' AND h.line > 25.5))
   AND h.player_name IN (SELECT name FROM players WHERE position = 'QB')
 """
+
+
+TD_SQL = """
+SELECT COUNT(*) AS picks,
+       AVG(CASE WHEN r.hit THEN 1.0 ELSE 0 END) AS right_rate,
+       AVG(CASE WHEN r.price_american > 0 THEN 100.0 / (r.price_american + 100.0)
+                WHEN r.price_american < 0 THEN -r.price_american / (-r.price_american + 100.0)
+           END) AS needed
+FROM prop_edge_results r
+WHERE r.hit IS NOT NULL AND r.source = 'live' AND r.game_date >= :since
+  AND r.market_code = 'pass_td' AND r.win_prob >= 0.60
+"""
+
+
+def sure_pass_tds(engine):
+    """Passing touchdown picks at a 60% chance or better, lifted to elite on
+    27 November 2026 on 65% right across 231 picks in two seasons."""
+    since = os.getenv("PASS_TD_SINCE", "2026-11-27")
+    try:
+        with engine.connect() as conn:
+            r = pd.read_sql(text(TD_SQL), conn, params={"since": since}).iloc[0]
+    except Exception as exc:
+        print(f"  passing touchdown picks at 60% or better: could not be read ({exc})")
+        return
+    n = int(r["picks"] or 0)
+    if n < MIN_PICKS:
+        print(f"  passing touchdown picks at 60% or better since {since}: {n} graded, "
+              f"under {MIN_PICKS}, too few to read (backtest: 65% on 231)")
+    else:
+        print(f"  passing touchdown picks at 60% or better since {since}: {n} graded, "
+              f"right {r['right_rate']:.1%}, needed {r['needed']:.1%} (backtest: 65% on 231)")
 
 
 def qb_rush_unders(engine):

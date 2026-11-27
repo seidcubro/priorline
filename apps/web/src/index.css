@@ -4333,3 +4333,54 @@ a.ps-link:hover {
   text-transform: uppercase;
   color: var(--tier-medium-fg);
 }
+
+/*
+ * Tier, Best and Value: three chips of one size in one row.
+ *
+ * Best and Value had been smaller boxes under the tier, and before that bare
+ * words. Either way the tier looked like the label and the other two like
+ * footnotes, when all three are the same kind of statement about the pick.
+ */
+.ps-chiprow { display: inline-flex; gap: 6px; justify-content: center; }
+.ps-table td[data-label="Tier"] .tier { width: 64px; padding: 0; }
+.ps-table col.c-tier { width: 224px; }
+
+/*
+ * The three books and what each is hanging, one a line. The one the pick is
+ * priced at is set in ink and bold; the other two are quiet.
+ */
+.ps-books {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 132px;
+  font-size: 0.78rem;
+  line-height: 1.25;
+  color: var(--text-dim);
+}
+.ps-books > span { display: flex; justify-content: space-between; gap: 10px; }
+.ps-books > span.is-best { color: var(--text); font-weight: 800; }
+.ps-table col.c-book { width: 156px; }
+/* Tightened so the ten columns fit the page without a sideways scroll, which
+   had pushed the books' lines off the right edge. */
+.ps-table col.c-market { width: 132px; }
+.ps-table col.c-num { width: 84px; }
+.ps-table col.c-narrow { width: 74px; }
+.ps-table col.c-prob { width: 120px; }
+.ps-table col.c-pick { width: 106px; }
+.ps-table:has(colgroup) { min-width: 1280px; }
+
+/* What 100 dollars comes back as. Green at 100 or better, quiet under it:
+   under 100 is the usual case, not a loss, and red is kept for losses. */
+.ps-payback {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: var(--text-dim);
+}
+.ps-payback.is-a, .ps-payback.is-b, .ps-payback.is-c { color: var(--green); }
+@media (max-width: 960px) {
+  .ps-table:has(colgroup) { min-width: 0; }
+  .ps-chiprow { flex-wrap: wrap; justify-content: flex-start; }
+}

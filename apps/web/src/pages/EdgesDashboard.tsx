@@ -36,29 +36,32 @@ import {
 } from "../api";
 
 /**
- * Books posting a different number than the one being recommended.
+ * The line at each of the three books the board is built from, always all
+ * three and always in this order.
  *
- * A signal names one book and one line, and a reader at a different book has
- * no way to tell whether their own book is offering the same bet. Kincaid was
- * published at under 3.5 on FanDuel while DraftKings and BetMGM were both at
- * 4.5, which is not a worse price for the same bet, it is a different bet, and
- * the row said nothing at all about it.
- *
- * Grouped by line rather than listed per book, because "DraftKings, BetMGM at
- * 4.5" is the sentence a reader needs and three separate chips saying 4.5 is
- * not.
+ * The cell used to name the best book and then describe the others, in a chip,
+ * a count, a range or a tooltip depending on the day. A reader has one of these
+ * three apps open and wants to know what their own book is hanging. So each
+ * row says what all three are hanging, and marks the one the pick is priced at.
+ * A book with nothing posted shows a dash, so the cell is three lines on every
+ * row and no row is taller than another.
  */
-function offConsensus(e: PropEdge): { line: number; books: string[] }[] {
-  const byLine = new Map<number, string[]>();
+const BIG_THREE = ["DraftKings", "FanDuel", "BetMGM"] as const;
+
+function bigThree(e: PropEdge): { book: string; line: number | null; best: boolean }[] {
+  const posted = new Map<string, number | null>();
   for (const b of e.market_lines ?? []) {
-    if (b.line == null || b.line === e.line) continue;
-    const books = byLine.get(b.line) ?? [];
-    books.push(b.bookmaker_title ?? "another book");
-    byLine.set(b.line, books);
+    if (b.bookmaker_title) posted.set(b.bookmaker_title, b.line ?? null);
   }
-  return [...byLine.entries()]
-    .sort(([a], [b]) => a - b)
-    .map(([line, books]) => ({ line, books }));
+  for (const a of e.alts) {
+    const name = a.bookmaker_title ?? a.bookmaker_key;
+    if (name && !posted.has(name)) posted.set(name, a.line ?? null);
+  }
+  const mine = e.bookmaker_title ?? e.bookmaker_key ?? "";
+  if (mine) posted.set(mine, e.line ?? null);
+  return BIG_THREE.map((book) => ({
+    book, line: posted.has(book) ? posted.get(book) ?? null : null, best: book === mine,
+  }));
 }
 
 /**
@@ -135,29 +138,6 @@ function shortMatchup(e: PropEdge): string {
   const nick = (t: string) => t.trim().split(" ").pop() ?? t;
   return `${nick(e.away_team)} @ ${nick(e.home_team)}`;
 }
-
-/** The other books in a few words: how many, and where their lines sit. */
-function otherBooks(e: PropEdge): string {
-  const lines = e.alts.map((a) => a.line).filter((n): n is number => n !== null);
-  const n = e.alts.length;
-  if (!lines.length) return `+${n} more`;
-  const lo = Math.min(...lines);
-  const hi = Math.max(...lines);
-  return lo === hi ? `+${n} more at ${lo}` : `+${n} more, ${lo} to ${hi}`;
-}
-
-/** Every book and its line, for the tooltip. */
-function bookList(e: PropEdge): string {
-  const rows = [`${e.bookmaker_title ?? e.bookmaker_key} ${e.line ?? "-"}`,
-    ...e.alts.map((a) => `${a.bookmaker_title ?? a.bookmaker_key} ${a.line ?? "-"}`)];
-  // And the books posting a different line from the one this pick is priced
-  // at, which used to be listed in the cell.
-  const off = offConsensus(e).map((o) => `${o.books.join(", ")} at ${o.line}`);
-  return off.length
-    ? [...rows, "", "A different line, which is a different bet:", ...off].join("\n")
-    : rows.join("\n");
-}
-
 
 /**
  * What the numbers on this page are, and what they are not.
@@ -885,7 +865,13 @@ export default function EdgesDashboard() {
                       return g === null ? (
                         "-"
                       ) : (
-                        <span className={`ps-grade ${g.cls}`}>{g.letter}</span>
+                        // What 100 dollars comes back as, on average, at this
+                        // price. It was a letter, and the letter was C or D
+                        // on every row, which is true and tells you nothing
+                        // about which D is nearly even and which is not.
+                        <span className={`ps-payback ${g.cls}`}>
+                          ${(100 * (1 + (e.ev_per_unit ?? 0))).toFixed(0)}
+                        </span>
                       );
                     })()}
                   </td>
@@ -911,21 +897,35 @@ export default function EdgesDashboard() {
                     and the full list is in the tooltip.
                   */}
                   <td data-label="Tier">
-                    <span className={`tier tier-${e.edge_tier}`}>{e.edge_tier}</span>
-                    {(e.best_bet || e.value_flag) && (
-                      <span className="ps-minichips">
-                        {e.best_bet && <span>Best</span>}
-                        {e.value_flag && <span>Value</span>}
-                      </span>
-                    )}
-                  </td>
-                  <td data-label="Book" title={bookList(e)}>
-                    <span className="book-chip best">
-                      {e.bookmaker_title ?? e.bookmaker_key} {e.line ?? "-"}
+                    <span className="ps-chiprow">
+                      <span className={`tier tier-${e.edge_tier}`}>{e.edge_tier}</span>
+                      {e.best_bet && (
+                        <span
+                          className="tier best-chip"
+                          title="Top tier, under side, at the best price: the one selection that held up on a season it was not chosen on."
+                        >
+                          Best
+                        </span>
+                      )}
+                      {e.value_flag && (
+                        <span
+                          className="tier value-chip"
+                          title="The under on a high line, where the under has come in more often than its price needs."
+                        >
+                          Value
+                        </span>
+                      )}
                     </span>
-                    {e.alts.length ? (
-                      <span className="ps-cellnote">{otherBooks(e)}</span>
-                    ) : null}
+                  </td>
+                  <td data-label="Book">
+                    <span className="ps-books">
+                      {bigThree(e).map((b) => (
+                        <span key={b.book} className={b.best ? "is-best" : undefined}>
+                          <span>{b.book}</span>
+                          <span className="num">{b.line ?? "–"}</span>
+                        </span>
+                      ))}
+                    </span>
                   </td>
                 </tr>
                 {says.length ? (

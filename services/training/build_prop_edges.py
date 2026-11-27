@@ -1591,6 +1591,11 @@ def main():
                AND f.bookmaker_key = p.bookmaker_key
                AND f.market_key = p.market_key
             WHERE (p.line IS NOT NULL OR p.market_key = 'player_anytime_td')
+              -- Only the books a reader can actually open. Seven more were
+              -- read for a day and the board at once started quoting betPARX
+              -- at a line no other book had, which is a pick nobody following
+              -- along could place. BOARD_BOOKS names them.
+              AND p.bookmaker_key = ANY(string_to_array(:books, ','))
               AND (NOT (:drop_pulled)::boolean
                    OR p.updated_at >= f.seen - INTERVAL '15 minutes')
               -- Only games that have not kicked off.
@@ -1626,7 +1631,8 @@ def main():
         ),
         engine,
         params={"lookback_hours": int(os.getenv("EDGE_LOOKBACK_HOURS", "0")),
-                "drop_pulled": os.getenv("PULLED_PROPS", "1") != "0"},
+                "drop_pulled": os.getenv("PULLED_PROPS", "1") != "0",
+                "books": os.getenv("BOARD_BOOKS", "draftkings,fanduel,betmgm")},
     )
 
     # Say who was dropped, so a player missing from the board has a reason

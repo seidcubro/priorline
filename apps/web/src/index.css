@@ -4284,8 +4284,8 @@ a.ps-link:hover {
   color: var(--tier-medium-fg);
 }
 .ps-table td[data-label="Book"] { white-space: nowrap; }
-.ps-table col.c-tier { width: 150px; }
-.ps-table col.c-book { width: 190px; }
+.ps-table col.c-tier { width: 128px; }
+.ps-table col.c-book { width: 172px; }
 .ps-table col.c-pick { width: 118px; }
 .ps-table col.c-market { width: 150px; }
 .ps-table td[data-label="Market"] { font-weight: 600; }
@@ -4300,4 +4300,36 @@ a.ps-link:hover {
   }
   .ps-gameline { white-space: normal; }
   .ps-table td[data-label="Book"] { white-space: normal; }
+}
+
+/*
+ * The photograph a little taller than the three lines beside it, so the face
+ * leads the row and the text hangs off it.
+ */
+.ps-table .ps-avatar { width: 62px; height: 62px; }
+
+/*
+ * Best and Value, as small boxes under the tier's box. They were bare words
+ * under a chip, and a box followed by loose words reads as two different
+ * kinds of thing. Now it is one kind, in two sizes.
+ */
+.ps-minichips {
+  display: flex;
+  justify-content: center;
+  gap: 4px;
+  margin-top: 5px;
+}
+.ps-minichips span {
+  display: inline-flex;
+  align-items: center;
+  height: 17px;
+  padding: 0 6px;
+  border: 1.5px solid var(--tier-medium-fg);
+  font-family: var(--font-display);
+  font-size: 0.6rem;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--tier-medium-fg);
 }

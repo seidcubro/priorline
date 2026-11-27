@@ -913,9 +913,9 @@ export default function EdgesDashboard() {
                   <td data-label="Tier">
                     <span className={`tier tier-${e.edge_tier}`}>{e.edge_tier}</span>
                     {(e.best_bet || e.value_flag) && (
-                      <span className="ps-cellnote is-mark">
-                        {[e.best_bet ? "Best" : null, e.value_flag ? "Value" : null]
-                          .filter(Boolean).join(" · ")}
+                      <span className="ps-minichips">
+                        {e.best_bet && <span>Best</span>}
+                        {e.value_flag && <span>Value</span>}
                       </span>
                     )}
                   </td>

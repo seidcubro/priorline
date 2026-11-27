@@ -413,6 +413,9 @@ def list_edges(
                       AND o.market_key = mk.key
                       AND lower(o.outcome_name) = prop_edges.recommended_side
                       AND o.line IS NOT NULL
+                      -- The three books the board is built from. See
+                      -- BOARD_BOOKS in build_prop_edges.py.
+                      AND o.bookmaker_key IN ('draftkings', 'fanduel', 'betmgm')
                     ORDER BY o.bookmaker_key, o.last_update DESC NULLS LAST
                 ) b
             ) market_lines ON TRUE

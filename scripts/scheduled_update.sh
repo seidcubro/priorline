@@ -128,7 +128,18 @@ log() { printf '\n[%s] ==> %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$1"; }
 # The numbers under each pick, for the site to show beside it. After the board
 # and apart from it: its own table, and a failure here changes nothing on the
 # board, so it is logged and the run goes on. See build_why.py.
+# Pass attempts and completions from the team, the script and the man under
+# centre, written before the board so the board can publish them. It checks
+# itself against what we published and leaves out a market it is not closer
+# on. A failure leaves the board on its own numbers. See football_volume.py.
+football_numbers() {
+  log "read attempts and completions from the team and the script"
+  $COMPOSE run --rm training python football_volume.py     || log "the football volume step failed; the board keeps its own numbers"
+}
+
 explain_the_board() {
+  log "write the football model's carries beside the board's, for grading"
+  $COMPOSE run --rm training python football_volume.py shadow     || log "the carries shadow failed; the board is unaffected"
   # The elite receiving picks, chosen by a second model's confidence. It checks
   # itself on seasons it has not seen every time it runs and changes nothing if
   # it does not beat its prices in each. A failure leaves the tiers the board
@@ -152,6 +163,7 @@ rebuild_on_current_news() {
   $COMPOSE run --rm -e MARKETS_ONLY="${MARKETS_ONLY:-}" \
     training python build_projections.py
   log "rebuild the board"
+  football_numbers
   $COMPOSE run --rm training python build_prop_edges.py
   explain_the_board
 }
@@ -527,6 +539,7 @@ SQL
 
   log "rebuild the board on the new prices"
   $COMPOSE build -q training >/dev/null
+  football_numbers
   $COMPOSE run --rm training python build_prop_edges.py
   log "done"
   exit 0
@@ -941,6 +954,7 @@ $COMPOSE run --rm -e MARKETS_ONLY="${MARKETS_ONLY:-}" \
   training python build_projections.py
 
 log "build the board"
+football_numbers
 $COMPOSE run --rm training python build_prop_edges.py
 explain_the_board
 

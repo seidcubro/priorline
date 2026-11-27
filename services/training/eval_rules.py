@@ -92,6 +92,7 @@ def main():
         print(f"  {'':<18}{mark:<16}{int(r['picks']):>6}{rate:>9}")
     qb_rush_unders(engine)
     sure_pass_tds(engine)
+    shadow_carries(engine)
 
 
 QB_SQL = """
@@ -122,6 +123,44 @@ FROM prop_edge_results r
 WHERE r.hit IS NOT NULL AND r.source = 'live' AND r.game_date >= :since
   AND r.market_code = 'pass_td' AND r.win_prob >= 0.60
 """
+
+
+SHADOW_SQL = """
+SELECT s.side, s.board_side, s.gap, s.line, r.actual
+FROM shadow_numbers s
+JOIN LATERAL (
+    SELECT actual FROM prop_edge_results r
+    WHERE r.player_id = s.player_id AND r.market_code = s.market_code
+      AND r.game_date BETWEEN s.game_date - 1 AND s.game_date + 1
+      AND r.actual IS NOT NULL
+    ORDER BY r.game_date LIMIT 1) r ON TRUE
+WHERE s.model = 'football_v1' AND s.market_code = 'rush_att'
+"""
+
+
+def shadow_carries(engine):
+    """The football model's carries number, never published, graded against
+    the line beside the board's own side on the same props."""
+    try:
+        with engine.connect() as conn:
+            s = pd.read_sql(text(SHADOW_SQL), conn)
+    except Exception:
+        print("  carries in shadow (football model): nothing written yet")
+        return
+    s = s[s["actual"].astype(float) != s["line"].astype(float)]
+    if len(s) < MIN_PICKS:
+        print(f"  carries in shadow (football model): {len(s)} graded, under {MIN_PICKS}, "
+              "too few to read (backtest: 52.2% on 946, 55.4% on the 40% furthest from "
+              "the line)")
+        return
+    went_over = s["actual"].astype(float) > s["line"].astype(float)
+    mine = (s["side"] == "over") == went_over
+    board = (s["board_side"] == "over") == went_over
+    far = s["gap"].abs() >= s["gap"].abs().quantile(0.6)
+    print(f"  carries in shadow (football model): {len(s)} graded, its side right "
+          f"{mine.mean():.1%}, the board's side on the same props {board.mean():.1%}; "
+          f"its 40% furthest from the line {mine[far].mean():.1%} on {int(far.sum())} "
+          "(backtest: 52.2%, and 55.4% furthest from the line)")
 
 
 def sure_pass_tds(engine):

@@ -37,6 +37,7 @@ import numpy as np
 import pandas as pd
 import vacated_volume as vv
 import qb_rushing
+import football_volume
 import spread_calibration as spread
 import thin_sample
 from odds_markets import ALL_ODDS_TO_MARKET
@@ -1853,6 +1854,11 @@ def main():
     # Who inherits the volume of a ruled-out teammate, and how much. Built once;
     # only pools that beat "unchanged" on a held-out season are applied.
     vacated_vol = vv.VacatedVolume(engine, ctx, vv.load_all(artifact_dir))
+    # Pass attempts and completions from the team, the script and the man
+    # under centre, where that number checked out closer than ours. See
+    # football_volume.py.
+    football = football_volume.published(artifact_dir)
+    football_used = set()
     stale_factors = load_stale_role_factors(artifact_dir)
     last_played = load_last_played(engine)
     ruled_out: set[str] = set()
@@ -2107,6 +2113,16 @@ def main():
         model_projection = spread.apply(
             spread_cal, market_code, "point", model_projection)
 
+        # A quarterback's attempts and completions are his team's plan meeting
+        # this game, and football_volume.py reads them that way: on his own
+        # starts, however long ago, and not on whoever played last week. Where
+        # it has a number for him it replaces everything above, the inherited
+        # volume included, because it has already asked who is under centre.
+        football_number = (football.get(str(frow.get("player_id"))) or {}).get(market_code)
+        if football_number:
+            model_projection = float(football_number)
+            football_used.add((frow.get("player_id"), market_code))
+
         weighted_mean = float(frow.get("weighted_mean", 0.0) or 0.0)
 
         # Serve the model's own prediction. This used to be
@@ -2163,6 +2179,11 @@ def main():
             # The count markets are rebuilt from the point projection below and
             # are not moved here. See season_bias.py.
             season_shift = season_bias.shift(season_cal, market_code)
+            if football_number:
+                # Centred on the football number, which is fitted through last
+                # week and needs no season correction on top.
+                qp = football_volume.recentre(qp, model_projection)
+                season_shift = 0.0
             if season_shift and market_code not in COUNT_MARKETS:
                 qp = {q: max(0.0, v + season_shift) for q, v in qp.items()}
             p_over = float(prob_over_from_quantiles(
@@ -2205,6 +2226,10 @@ def main():
             # so it has the last word. See qb_rushing.py.
             anchored = qb_rushing.median(anchored, projection, frow.get("position"),
                                          market_code)
+            # The football number is the middle of the range it was centred
+            # on, and the calibration steps above must not walk it off.
+            if football_number:
+                anchored = float(football_number)
             if abs(anchored - median_value) > 1e-9:
                 # Move the probability with the median, or the row states two
                 # different distributions at once.
@@ -2806,6 +2831,9 @@ def main():
                       "to elite: " + ", ".join(
                           f"{r.player_name} {r.recommended_side} {r.line}"
                           for r in sure.drop_duplicates("player_name").itertuples()))
+        if football_used:
+            print(f"  attempts and completions read from the team, the script and the "
+                  f"man under centre: {len(football_used)} quarterback props")
         after = out["edge_tier"].value_counts().to_dict()
         print("  tiers by rank within each market's board: "
               + ", ".join(f"{t} {after.get(t, 0)}"

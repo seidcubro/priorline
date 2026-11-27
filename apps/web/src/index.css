@@ -4173,3 +4173,131 @@ a.ps-link:hover {
     background: color-mix(in srgb, var(--accent) 7%, var(--bg-raised));
   }
 }
+
+/* =============================================================== board rows
+ *
+ * One entry, drawn the same way every time.
+ *
+ * The rows had been patched a piece at a time and it showed: a call block
+ * twice the size of the tier chip beside it, a book cell that was one chip on
+ * one row and a paragraph on the next, a name crowding a matchup cut off with
+ * an ellipsis. Nothing lined up because nothing shared a size.
+ *
+ * So there is one chip, 30px high, in one size of type, and the call, the tier
+ * and the book are all that chip: the call filled, the other two outlined.
+ * Under a chip there is room for one quiet line and no more. The player block
+ * is a name and a single line beneath it. The row is 80px, always, and the
+ * line of numbers under it is as tall as its sentence.
+ */
+.ps-table tbody tr[data-tier] > td {
+  height: 80px;
+  max-height: 80px;
+  padding-top: 0;
+  padding-bottom: 0;
+  overflow: hidden;
+}
+.ps-table tbody tr.ps-whyrow > td {
+  height: auto;
+  max-height: none;
+  overflow: visible;
+  padding: 0 var(--s4) 16px 82px;
+}
+.ps-table .ps-avatar { width: 46px; height: 46px; flex: none; }
+.ps-table .ps-ident { gap: 14px; }
+.ps-table .ps-ident-name {
+  display: block;
+  font-family: var(--font-serif);
+  font-size: 1.05rem;
+  font-weight: 800;
+  line-height: 1.25;
+  letter-spacing: -0.005em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ps-gameline {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-top: 3px;
+  font-size: 0.78rem;
+  line-height: 1.3;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.ps-gameline span { overflow: hidden; text-overflow: ellipsis; }
+.ps-gameline span:first-child { color: var(--text); font-weight: 600; }
+
+/* The one chip. */
+.ps-table td[data-label="Pick"] .side-over,
+.ps-table td[data-label="Pick"] .side-under,
+.ps-table td[data-label="Tier"] .tier,
+.ps-table td[data-label="Book"] .book-chip.best {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  height: 30px;
+  min-width: 0;
+  margin: 0;
+  padding: 0 12px;
+  border-radius: 0;
+  font-family: var(--font-display);
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.ps-table td[data-label="Pick"] .side-over,
+.ps-table td[data-label="Pick"] .side-under { width: 82px; border: 0; color: #f3f0e2; }
+.ps-table td[data-label="Tier"] .tier { width: 92px; border-width: 1.5px; border-style: solid; }
+.ps-table td[data-label="Book"] .book-chip.best {
+  width: 150px;
+  max-width: 100%;
+  border: 1.5px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  letter-spacing: 0.04em;
+  text-transform: none;
+  font-size: 0.78rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* The one quiet line under a chip. */
+.ps-cellnote {
+  display: block;
+  margin-top: 6px;
+  font-size: 0.72rem;
+  line-height: 1.2;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ps-cellnote.is-mark {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tier-medium-fg);
+}
+.ps-table td[data-label="Book"] { white-space: nowrap; }
+.ps-table col.c-tier { width: 150px; }
+.ps-table col.c-book { width: 190px; }
+.ps-table col.c-pick { width: 118px; }
+.ps-table col.c-market { width: 150px; }
+.ps-table td[data-label="Market"] { font-weight: 600; }
+.ps-table td[data-label="Line"] .matchup { display: block; margin-top: 3px; }
+@media (max-width: 960px) {
+  .ps-table tbody tr[data-tier] > td {
+    height: auto;
+    max-height: none;
+    overflow: visible;
+    padding-top: var(--s2);
+    padding-bottom: var(--s2);
+  }
+  .ps-gameline { white-space: normal; }
+  .ps-table td[data-label="Book"] { white-space: normal; }
+}

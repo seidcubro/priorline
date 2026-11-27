@@ -128,6 +128,31 @@ function fmtMatchup(e: PropEdge): string {
   return `${e.away_team} @ ${e.home_team}`;
 }
 
+/** "Chiefs @ Bills". The full names ran out of room and ended in an ellipsis
+ *  on every row, which reads as a mistake. The nicknames always fit. */
+function shortMatchup(e: PropEdge): string {
+  if (!e.home_team || !e.away_team) return "";
+  const nick = (t: string) => t.trim().split(" ").pop() ?? t;
+  return `${nick(e.away_team)} @ ${nick(e.home_team)}`;
+}
+
+/** The other books in a few words: how many, and where their lines sit. */
+function otherBooks(e: PropEdge): string {
+  const lines = e.alts.map((a) => a.line).filter((n): n is number => n !== null);
+  const n = e.alts.length;
+  if (!lines.length) return `+${n} more`;
+  const lo = Math.min(...lines);
+  const hi = Math.max(...lines);
+  return lo === hi ? `+${n} more at ${lo}` : `+${n} more, ${lo} to ${hi}`;
+}
+
+/** Every book and its line, for the tooltip. */
+function bookList(e: PropEdge): string {
+  return [`${e.bookmaker_title ?? e.bookmaker_key} ${e.line ?? "-"}`,
+    ...e.alts.map((a) => `${a.bookmaker_title ?? a.bookmaker_key} ${a.line ?? "-"}`)]
+    .join("\n");
+}
+
 
 /**
  * What the numbers on this page are, and what they are not.
@@ -725,8 +750,10 @@ export default function EdgesDashboard() {
                             {e.player_name}
                           </span>
                         )}
-                        <div className="matchup" title={fmtMatchup(e)}>{fmtMatchup(e)}</div>
-                        <div className="ps-gamedate">{fmtGameDate(e)}</div>
+                        <div className="ps-gameline" title={fmtMatchup(e)}>
+                          <span>{shortMatchup(e)}</span>
+                          <span>{fmtGameDate(e)}</span>
+                        </div>
                       </div>
                     </div>
                     {says.length ? (
@@ -867,52 +894,33 @@ export default function EdgesDashboard() {
                       </div>
                     )}
                   </td>
+                  {/*
+                    One chip and one quiet line, in both of these cells, so no
+                    row can be taller than another.
+
+                    The tier cell used to hold up to three chips, which wrapped
+                    to a second line on some rows and not others. The book cell
+                    listed every book: fine with three, a paragraph with ten.
+                    The best book stays a chip. The rest are a count and the
+                    span of their lines, which is the part a reader acts on,
+                    and the full list is in the tooltip.
+                  */}
                   <td data-label="Tier">
                     <span className={`tier tier-${e.edge_tier}`}>{e.edge_tier}</span>
-                    {e.best_bet && (
-                      <span
-                        className="tier best-chip"
-                        title="The one selection verified profitable on a season never used to choose it: top tier, under side, one pick per player-game. +4.4% per unit, 95% interval [+0.3%, +8.2%] across 1,540 picks."
-                      >
-                        Best
-                      </span>
-                    )}
-                    {e.value_flag && (
-                      <span
-                        className="tier value-chip"
-                        title="Matches the one pattern that held across 2023, 2024 and 2025: the under on a top-quartile line, where books shade toward the public's overs. About +3.6% over break-even at the best price."
-                      >
-                        Value
+                    {(e.best_bet || e.value_flag) && (
+                      <span className="ps-cellnote is-mark">
+                        {[e.best_bet ? "Best" : null, e.value_flag ? "Value" : null]
+                          .filter(Boolean).join(" · ")}
                       </span>
                     )}
                   </td>
-                  <td data-label="Book">
+                  <td data-label="Book" title={bookList(e)}>
                     <span className="book-chip best">
                       {e.bookmaker_title ?? e.bookmaker_key} {e.line ?? "-"}
                     </span>
-                    {/* The other books on one quiet line. As a chip each they
-                        stacked three deep and made a row with three books
-                        taller than a row with one, so no two entries on the
-                        board were the same height. */}
                     {e.alts.length ? (
-                      <span className="ps-alsobooks">
-                        {e.alts.map((a) =>
-                          `${a.bookmaker_title ?? a.bookmaker_key} ${a.line ?? "-"}`).join(" · ")}
-                      </span>
+                      <span className="ps-cellnote">{otherBooks(e)}</span>
                     ) : null}
-                    {/* Where the rest of the market is, when it is somewhere
-                        else. Silent when every book agrees, which is most of
-                        them, so this only appears when it is telling you
-                        something. */}
-                    {offConsensus(e).map((o) => (
-                      <span
-                        className="ps-offline"
-                        key={o.line}
-                        title={`This signal is priced at ${e.line}. These books are posting ${o.line}, which is a different bet, not a different price for the same one.`}
-                      >
-                        {o.books.join(", ")} at {o.line}
-                      </span>
-                    ))}
                   </td>
                 </tr>
                 {says.length ? (

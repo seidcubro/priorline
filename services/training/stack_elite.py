@@ -4,26 +4,28 @@ The board ranks a pick by how far our number sits from the line. On receiving
 props that ranking's top tier was right 53.9% of the time in 2026. A second
 model, given the line, the price, our own number and everything in
 stack_features.py, does not pick sides better than the board across all props.
-But the picks it is most sure of come in far more often than the rest, and
-that held on both seasons, each scored by a model that had never seen it:
+But where it is most sure, and the board's own side and the price's favourite
+both agree with it, the pick comes in far more often than the rest. With game
+weeks held out, so every prop is scored by a model that never saw its week:
 
-    most confident fifth of receiving picks   2026: 59.6% to 62.1% right
-                                              2025: 58.4% to 58.5% right
-    and ahead of what the prices needed by 1.2 to 2.9 points in every run
+    2025   63.9% right on 438, where the prices needed 59.0%
+    2026   65.4% right on 243, where the prices needed 60.9%
 
-The spread is across three builds of the model. Narrower slices looked better
-(68% on the top tenth of catches in one build) and did not survive a change of
-features, so the fifth is what is used. The same idea was tried on rushing and
-passing with their own models and found nothing.
+An earlier build held out a whole season at a time, which left the model
+learning from one season, and took the most confident fifth without asking for
+agreement. That read 58.2% and 60.5%. The same idea was tried on rushing and
+passing with their own models, and with every market's lines fed to every
+other; rushing improved in 2026 only, where the book prices more markets, and
+that is being watched, not used.
 
 What this does, after the board is built:
 
     1. learns "did it go over" from every graded receiving prop
-    2. checks itself: each season is predicted by a model fitted on the others,
-       and the most confident fifth has to be ahead of its price in every one.
-       If it is not, nothing is changed and it says so.
-    3. scores the board's receiving picks. Those at or above the confidence
-       that marked the top fifth become elite. Receiving picks that were elite
+    2. checks itself: every week is predicted by a model fitted without it,
+       and the picks where all three agree and it is most sure have to be
+       ahead of their price in every season. If not, nothing is changed.
+    3. scores the board's receiving picks. Those where all three agree, at or
+       above the confidence that marked that slice, become elite. Receiving picks that were elite
        by gap and are not chosen step down to strong.
 
 It never changes a side, a number or a price, only the tier, and never touches
@@ -54,6 +56,7 @@ import stack_features as sf
 warnings.filterwarnings("ignore")
 MARKETS = ("recs", "rec_yds")
 TOP = 0.80
+FOLDS = 6
 MIN_SLICE = 80
 ARTIFACTS = Path(os.getenv("ARTIFACT_DIR", "/artifacts"))
 
@@ -122,29 +125,43 @@ def run(graded, board, people):
     x = sf.for_props(x)
     cols = sf.columns(x)
 
-    # Each season predicted by a model fitted on the others.
-    held, table, ok = [], [], True
-    for s in seasons:
-        tr, te = x[x["season"] != s], x[x["season"] == s].copy()
-        if len(tr) < 500 or len(te) < 300:
+    # Every prop predicted by a model that never saw its week. Game weeks from
+    # every season are dealt into FOLDS hands and each hand is predicted from
+    # the rest. Holding out a whole season instead left the model learning from
+    # one season at a time, and it was visibly worse for it: 58% against 64%
+    # on the same slice.
+    x["wk"] = x["season"].astype(int) * 100 + x["game_date"].dt.isocalendar().week.astype(int)
+    hands = pd.Series(sorted(x["wk"].unique())).sample(frac=1, random_state=3).reset_index(drop=True)
+    fold = {w: i % FOLDS for i, w in hands.items()}
+    x["fold"] = x["wk"].map(fold)
+    held = []
+    for f in range(FOLDS):
+        tr, te = x[x["fold"] != f], x[x["fold"] == f].copy()
+        if len(tr) < 500 or te.empty:
             continue
         te["p"] = chance(fit(tr, cols), te, cols)
         held.append(te)
-    if len(held) < 2:
-        return [], {"accepted": False, "why": "not enough graded props in two seasons"}
+    if not held:
+        return [], {"accepted": False, "why": "not enough graded props to hold any out"}
     oof = pd.concat(held)
     oof["conf"] = np.maximum(oof["p"], 1 - oof["p"])
-    cut = float(oof["conf"].quantile(TOP))
-    for s, te in oof.groupby("season"):
-        top = te[te["conf"] >= te["conf"].quantile(TOP)]
-        over = top["p"] > 0.5
-        right = float(np.where(over, top["over"], ~top["over"]).mean())
-        need = float(np.where(over, top["need_over"], top["need_under"]).mean())
-        pub = float(np.where(top["we_over"] == 1, top["over"], ~top["over"]).mean())
-        table.append({"season": int(s), "picks": int(len(top)), "right": right,
-                      "needed": need, "published_side_right": pub})
-        if len(top) < MIN_SLICE or right <= need:
+    over = oof["p"] > 0.5
+    # The model, the side the board took and the side the price favours all
+    # agree. Three things that share nothing saying the same thing.
+    oof["agree"] = (over == (oof["we_over"] == 1)) & (over == (oof["need_over"] > oof["need_under"]))
+    sure = oof[oof["agree"]]
+    cut = float(sure["conf"].quantile(TOP)) if len(sure) else 1.0
+    table, ok = [], True
+    for s, te in oof[oof["agree"] & (oof["conf"] >= cut)].groupby("season"):
+        o = te["p"] > 0.5
+        right = float(np.where(o, te["over"], ~te["over"]).mean())
+        need = float(np.where(o, te["need_over"], te["need_under"]).mean())
+        table.append({"season": int(s), "picks": int(len(te)), "right": right,
+                      "needed": need})
+        if len(te) < MIN_SLICE or right <= need:
             ok = False
+    if len(table) < 2:
+        ok = False
     report = {"accepted": bool(ok), "cut": cut, "held_out": table,
               "trained_on": int(len(x)), "features": len(cols)}
     if not ok or b.empty or not future:
@@ -164,7 +181,9 @@ def run(graded, board, people):
     y["conf"] = np.maximum(y["p"], 1 - y["p"])
     # The model has to be sure, and sure of the side the board took: this
     # changes a tier, never a side.
-    y["same_side"] = (y["p"] > 0.5) == (y["recommended_side"] == "over")
+    yo = y["p"] > 0.5
+    y["same_side"] = ((yo == (y["recommended_side"] == "over"))
+                      & (yo == (y["need_over"] > y["need_under"])))
     pick = y[(y["conf"] >= cut) & y["same_side"]]
     report["scored"] = int(len(y))
     report["chosen"] = [f"{r.player_name} {r.market_code} {r.recommended_side} {r.line} "
@@ -201,9 +220,9 @@ def main():
     people = people.sort_values("rank")
     ids, report = run(graded, board, people)
     for row in report.get("held_out", []):
-        print(f"  stack elite, {row['season']} held out: its most confident fifth was right "
-              f"{row['right']:.1%} on {row['picks']} (needed {row['needed']:.1%}; the "
-              f"published side on the same picks {row['published_side_right']:.1%})")
+        print(f"  stack elite, {row['season']}, weeks held out: where it agrees with the "
+              f"board and the price and is most sure, it was right "
+              f"{row['right']:.1%} on {row['picks']} (needed {row['needed']:.1%})")
     if not report.get("accepted"):
         print("stack elite: NOT applied. " + report.get(
             "why", "its most confident fifth was not ahead of its price in every season."))
